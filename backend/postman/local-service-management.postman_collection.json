@@ -1,0 +1,106 @@
+{
+  "info": {
+    "_postman_id": "57e8f8da-8d2a-4d2f-95a0-a518e9ef8f9d",
+    "name": "Local Service Management API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth - Register",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Demo User\",\n  \"email\": \"demo.user@example.com\",\n  \"password\": \"123456\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/register"
+      }
+    },
+    {
+      "name": "Auth - Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.userId) {",
+              "    pm.collectionVariables.set('userId', String(json.userId));",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"demo.user@example.com\",\n  \"password\": \"123456\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/login"
+      }
+    },
+    {
+      "name": "Services - Get All",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/services"
+      }
+    },
+    {
+      "name": "Bookings - Create",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": {{userId}},\n  \"serviceId\": {{serviceId}},\n  \"date\": \"{{bookingDate}}\"\n}"
+        },
+        "url": "{{baseUrl}}/bookings"
+      }
+    },
+    {
+      "name": "Bookings - Get By User",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/bookings/{{userId}}"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "userId",
+      "value": "1"
+    },
+    {
+      "key": "serviceId",
+      "value": "1"
+    },
+    {
+      "key": "bookingDate",
+      "value": "2026-04-20"
+    }
+  ]
+}
