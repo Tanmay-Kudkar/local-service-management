@@ -44,3 +44,20 @@ flutter {
 }
 
 setProperty("archivesBaseName", "Servico")
+
+tasks.register("renameFlutterReleaseApk") {
+    doLast {
+        val flutterApkDir = rootProject.projectDir.parentFile.resolve("build/app/outputs/flutter-apk")
+        val source = flutterApkDir.resolve("app-release.apk")
+        if (!source.exists()) {
+            return@doLast
+        }
+
+        val target = flutterApkDir.resolve("Servico.apk")
+        source.copyTo(target, overwrite = true)
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy("renameFlutterReleaseApk")
+}

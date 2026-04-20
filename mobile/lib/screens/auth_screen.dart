@@ -35,24 +35,12 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool _isLogin = true;
   bool _isLoading = false;
-  bool _showContent = false;
   _PortalType _portalType = _PortalType.customer;
   Uint8List? _selectedProfileImageBytes;
   String? _selectedProfileImageName;
 
   String get _selectedRole {
     return _portalType == _PortalType.customer ? 'USER' : 'PROVIDER';
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _showContent = true;
-      });
-    });
   }
 
   @override
@@ -241,148 +229,143 @@ class _AuthScreenState extends State<AuthScreen> {
     return Scaffold(
       body: AppBackground(
         child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: AnimatedSlide(
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeOutCubic,
-                offset: _showContent ? Offset.zero : const Offset(0, 0.08),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 500),
-                  opacity: _showContent ? 1 : 0,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 460),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.brand,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    Icons.room_service_rounded,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'Welcome to Servico',
-                                    style:
-                                        Theme.of(context).textTheme.titleLarge,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 18),
-                            _buildPortalSelector(context),
-                            const SizedBox(height: 14),
-                            Text(
-                              _headlineText(),
-                              style: Theme.of(context).textTheme.headlineMedium,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _descriptionText(),
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 18),
-                            _buildModeSelector(context),
-                            const SizedBox(height: 18),
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 220),
-                              child: !_isLogin
-                                  ? Padding(
-                                      key: const ValueKey('nameField'),
-                                      padding:
-                                          const EdgeInsets.only(bottom: 12),
-                                      child: TextField(
-                                        controller: _nameController,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Full Name',
-                                          prefixIcon: Icon(Icons.person_outline),
-                                        ),
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(
-                                      key: ValueKey('nameHidden'),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+                child: ConstrainedBox(
+                  constraints:
+                      BoxConstraints(minHeight: constraints.maxHeight - 16),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 460),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.brand,
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
-                            ),
-                            if (!_isLogin && _portalType == _PortalType.provider)
-                              _buildProviderRegistrationFields(),
-                            TextField(
-                              controller: _emailController,
-                              decoration: const InputDecoration(
-                                labelText: 'Email Address',
-                                prefixIcon: Icon(Icons.alternate_email_rounded),
+                                    child: const Icon(
+                                      Icons.room_service_rounded,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Welcome to Servico',
+                                      style:
+                                          Theme.of(context).textTheme.titleLarge,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              keyboardType: TextInputType.emailAddress,
-                            ),
-                            const SizedBox(height: 12),
-                            TextField(
-                              controller: _passwordController,
-                              decoration: const InputDecoration(
-                                labelText: 'Password',
-                                prefixIcon: Icon(Icons.lock_outline_rounded),
+                              const SizedBox(height: 18),
+                              _buildPortalSelector(context),
+                              const SizedBox(height: 14),
+                              Text(
+                                _headlineText(),
+                                style: Theme.of(context).textTheme.headlineMedium,
                               ),
-                              obscureText: true,
-                            ),
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: _isLoading ? null : _submit,
-                                child: _isLoading
-                                    ? const SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
+                              const SizedBox(height: 6),
+                              Text(
+                                _descriptionText(),
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 18),
+                              _buildModeSelector(context),
+                              const SizedBox(height: 18),
+                              if (!_isLogin) ...[
+                                TextField(
+                                  controller: _nameController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Full Name',
+                                    prefixIcon: Icon(Icons.person_outline),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              if (!_isLogin &&
+                                  _portalType == _PortalType.provider)
+                                _buildProviderRegistrationFields(),
+                              TextField(
+                                controller: _emailController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Email Address',
+                                  prefixIcon:
+                                      Icon(Icons.alternate_email_rounded),
+                                ),
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _passwordController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Password',
+                                  prefixIcon: Icon(Icons.lock_outline_rounded),
+                                ),
+                                obscureText: true,
+                              ),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _isLoading ? null : _submit,
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : Text(
+                                          _isLogin
+                                              ? 'Sign In'
+                                              : 'Create Account',
                                         ),
-                                      )
-                                    : Text(
-                                        _isLogin
-                                            ? 'Sign In'
-                                            : 'Create Account',
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Center(
-                              child: TextButton(
-                                onPressed: _isLoading
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _isLogin = !_isLogin;
-                                        });
-                                      },
-                                child: Text(
-                                  _isLogin
-                                      ? 'New here? Switch to register'
-                                      : 'Already registered? Switch to login',
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 8),
+                              Center(
+                                child: TextButton(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            _isLogin = !_isLogin;
+                                          });
+                                        },
+                                  child: Text(
+                                    _isLogin
+                                        ? 'New here? Switch to register'
+                                        : 'Already registered? Switch to login',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),

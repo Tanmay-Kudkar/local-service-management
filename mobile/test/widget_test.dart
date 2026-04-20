@@ -11,6 +11,6 @@ void main() {
       ),
     );
 
-    expect(find.text('Local Service App'), findsOneWidget);
+    expect(find.text('Portal'), findsOneWidget);
   });
 }
