@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 
 import '../models/auth_response.dart';
 import '../models/booking_model.dart';
+import '../models/provider_earnings_model.dart';
+import '../models/review_model.dart';
 import '../models/service_model.dart';
 import '../models/user_profile.dart';
 
@@ -29,7 +31,6 @@ class ApiService {
     String? city,
     String? state,
     String? pincode,
-    String? profileImageUrl,
     int? experienceYears,
     String? skills,
     String? bio,
@@ -46,7 +47,6 @@ class ApiService {
     _putIfNotBlank(payload, 'city', city);
     _putIfNotBlank(payload, 'state', state);
     _putIfNotBlank(payload, 'pincode', pincode);
-    _putIfNotBlank(payload, 'profileImageUrl', profileImageUrl);
     _putIfNotBlank(payload, 'skills', skills);
     _putIfNotBlank(payload, 'bio', bio);
 
@@ -85,8 +85,38 @@ class ApiService {
     throw Exception(_readError(response.body));
   }
 
-  static Future<List<ServiceModel>> getServices() async {
-    final response = await _get(Uri.parse('$baseUrl/services'));
+  static Future<List<ServiceModel>> getServices({
+    double? minPrice,
+    double? maxPrice,
+    double? minRating,
+    double? maxDistanceKm,
+    double? userLatitude,
+    double? userLongitude,
+    bool? onlyAvailable,
+    DateTime? availableDate,
+  }) async {
+    final queryParameters = <String, String>{};
+
+    _putQueryNumber(queryParameters, 'minPrice', minPrice);
+    _putQueryNumber(queryParameters, 'maxPrice', maxPrice);
+    _putQueryNumber(queryParameters, 'minRating', minRating);
+    _putQueryNumber(queryParameters, 'maxDistanceKm', maxDistanceKm);
+    _putQueryNumber(queryParameters, 'userLatitude', userLatitude);
+    _putQueryNumber(queryParameters, 'userLongitude', userLongitude);
+
+    if (onlyAvailable != null) {
+      queryParameters['onlyAvailable'] = onlyAvailable.toString();
+    }
+
+    if (availableDate != null) {
+      queryParameters['availableDate'] = _formatDate(availableDate);
+    }
+
+    final uri = Uri.parse('$baseUrl/services').replace(
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
+    );
+
+    final response = await _get(uri);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as List<dynamic>;
@@ -199,7 +229,6 @@ class ApiService {
     required String city,
     String? state,
     String? pincode,
-    String? profileImageUrl,
     int? experienceYears,
     String? skills,
     String? bio,
@@ -212,7 +241,6 @@ class ApiService {
 
     _putIfNotBlank(payload, 'state', state);
     _putIfNotBlank(payload, 'pincode', pincode);
-    _putIfNotBlank(payload, 'profileImageUrl', profileImageUrl);
     _putIfNotBlank(payload, 'skills', skills);
     _putIfNotBlank(payload, 'bio', bio);
 
@@ -232,7 +260,72 @@ class ApiService {
     throw Exception(_readError(response.body));
   }
 
-  static Future<void> createBooking({
+  static Future<UserProfile> updateProviderLocation({
+    required int userId,
+    required bool liveLocationSharingEnabled,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final payload = <String, dynamic>{
+      'liveLocationSharingEnabled': liveLocationSharingEnabled,
+    };
+
+    if (latitude != null && longitude != null) {
+      payload['latitude'] = latitude;
+      payload['longitude'] = longitude;
+    }
+
+    final response = await _put(
+      Uri.parse('$baseUrl/users/$userId/provider-location'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode == 200) {
+      return UserProfile.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_readError(response.body));
+  }
+
+  static Future<UserProfile> uploadProfileImage({
+    required int userId,
+    required Uint8List fileBytes,
+    required String fileName,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/users/$userId/profile-image'),
+    );
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: fileName,
+      ),
+    );
+
+    final response = await _sendMultipart(request);
+    if (response.statusCode == 200) {
+      return UserProfile.fromJson(jsonDecode(response.body));
+    }
+
+    throw Exception(_readError(response.body));
+  }
+
+  static Future<UserProfile> removeProfileImage({
+    required int userId,
+  }) async {
+    final response = await _delete(Uri.parse('$baseUrl/users/$userId/profile-image'));
+
+    if (response.statusCode == 200) {
+      return UserProfile.fromJson(jsonDecode(response.body));
+    }
+
+    throw Exception(_readError(response.body));
+  }
+
+  static Future<BookingModel> createBooking({
     required int userId,
     required int serviceId,
     required DateTime date,
@@ -247,9 +340,11 @@ class ApiService {
       }),
     );
 
-    if (response.statusCode != 200) {
-      throw Exception(_readError(response.body));
+    if (response.statusCode == 200) {
+      return BookingModel.fromJson(jsonDecode(response.body));
     }
+
+    throw Exception(_readError(response.body));
   }
 
   static Future<List<BookingModel>> getBookingsByUserId(int userId) async {
@@ -262,6 +357,128 @@ class ApiService {
           .toList();
     }
     throw Exception('Failed to load bookings');
+  }
+
+  static Future<List<BookingModel>> getProviderBookings(int providerId) async {
+    final response = await _get(Uri.parse('$baseUrl/bookings/provider/$providerId'));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as List<dynamic>;
+      return data
+          .map((item) => BookingModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load provider bookings');
+  }
+
+  static Future<BookingModel> updateBookingStatusByProvider({
+    required int bookingId,
+    required int providerId,
+    required String status,
+    String? trackingNote,
+  }) async {
+    final payload = <String, dynamic>{
+      'providerId': providerId,
+      'status': status,
+    };
+
+    _putIfNotBlank(payload, 'trackingNote', trackingNote);
+
+    final response = await _put(
+      Uri.parse('$baseUrl/bookings/$bookingId/provider-status'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode == 200) {
+      return BookingModel.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_readError(response.body));
+  }
+
+  static Future<ReviewModel> createReview({
+    required int bookingId,
+    required int userId,
+    required int rating,
+    String? comment,
+  }) async {
+    final payload = <String, dynamic>{
+      'bookingId': bookingId,
+      'userId': userId,
+      'rating': rating,
+    };
+    _putIfNotBlank(payload, 'comment', comment);
+
+    final response = await _post(
+      Uri.parse('$baseUrl/reviews'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode == 200) {
+      return ReviewModel.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_readError(response.body));
+  }
+
+  static Future<List<ReviewModel>> getProviderReviews(int providerId) async {
+    final response = await _get(Uri.parse('$baseUrl/reviews/provider/$providerId'));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as List<dynamic>;
+      return data
+          .map((item) => ReviewModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    }
+    throw Exception('Failed to load provider reviews');
+  }
+
+  static Future<ReviewModel> replyToReview({
+    required int reviewId,
+    required int providerId,
+    required String response,
+  }) async {
+    final apiResponse = await _put(
+      Uri.parse('$baseUrl/reviews/$reviewId/reply'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'providerId': providerId,
+        'response': response,
+      }),
+    );
+
+    if (apiResponse.statusCode == 200) {
+      return ReviewModel.fromJson(jsonDecode(apiResponse.body));
+    }
+    throw Exception(_readError(apiResponse.body));
+  }
+
+  static Future<ProviderEarningsModel> getProviderEarnings({
+    required int providerId,
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    final query = <String, String>{};
+    if (fromDate != null) {
+      query['fromDate'] = _formatDate(fromDate);
+    }
+    if (toDate != null) {
+      query['toDate'] = _formatDate(toDate);
+    }
+
+    final uri = Uri.parse('$baseUrl/providers/$providerId/earnings').replace(
+      queryParameters: query.isEmpty ? null : query,
+    );
+
+    final response = await _get(uri);
+
+    if (response.statusCode == 200) {
+      return ProviderEarningsModel.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>,
+      );
+    }
+
+    throw Exception(_readError(response.body));
   }
 
   static String _formatDate(DateTime date) {
@@ -317,6 +534,21 @@ class ApiService {
     }
   }
 
+  static Future<http.Response> _sendMultipart(http.MultipartRequest request) async {
+    try {
+      final streamed = await request.send().timeout(_requestTimeout);
+      return http.Response.fromStream(streamed);
+    } on TimeoutException {
+      throw Exception(
+        'Server is taking longer than expected. It may be waking up after inactivity. Please try again in a few seconds.',
+      );
+    } on http.ClientException {
+      throw Exception(
+        'Unable to reach server right now. It may be waking up after inactivity. Please try again shortly.',
+      );
+    }
+  }
+
   static String _readError(String body) {
     try {
       final parsed = jsonDecode(body) as Map<String, dynamic>;
@@ -339,5 +571,17 @@ class ApiService {
     if (trimmed.isNotEmpty) {
       payload[key] = trimmed;
     }
+  }
+
+  static void _putQueryNumber(
+    Map<String, String> query,
+    String key,
+    double? value,
+  ) {
+    if (value == null) {
+      return;
+    }
+
+    query[key] = value.toString();
   }
 }

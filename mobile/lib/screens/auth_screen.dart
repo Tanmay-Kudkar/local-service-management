@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
@@ -25,15 +28,17 @@ class _AuthScreenState extends State<AuthScreen> {
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
   final _pincodeController = TextEditingController();
-  final _profileImageUrlController = TextEditingController();
   final _experienceController = TextEditingController();
   final _skillsController = TextEditingController();
   final _bioController = TextEditingController();
+  final _imagePicker = ImagePicker();
 
   bool _isLogin = true;
   bool _isLoading = false;
   bool _showContent = false;
   _PortalType _portalType = _PortalType.customer;
+  Uint8List? _selectedProfileImageBytes;
+  String? _selectedProfileImageName;
 
   String get _selectedRole {
     return _portalType == _PortalType.customer ? 'USER' : 'PROVIDER';
@@ -60,7 +65,6 @@ class _AuthScreenState extends State<AuthScreen> {
     _cityController.dispose();
     _stateController.dispose();
     _pincodeController.dispose();
-    _profileImageUrlController.dispose();
     _experienceController.dispose();
     _skillsController.dispose();
     _bioController.dispose();
@@ -120,15 +124,20 @@ class _AuthScreenState extends State<AuthScreen> {
               pincode: isProviderRegistration
                 ? _pincodeController.text.trim()
                 : null,
-              profileImageUrl: isProviderRegistration
-                ? _profileImageUrlController.text.trim()
-                : null,
               experienceYears: isProviderRegistration ? experienceYears : null,
               skills: isProviderRegistration
                 ? _skillsController.text.trim()
                 : null,
               bio: isProviderRegistration ? _bioController.text.trim() : null,
             );
+
+      if (!_isLogin && isProviderRegistration && _selectedProfileImageBytes != null) {
+        await ApiService.uploadProfileImage(
+          userId: authResponse.userId,
+          fileBytes: _selectedProfileImageBytes!,
+          fileName: _selectedProfileImageName ?? 'provider_profile.jpg',
+        );
+      }
 
       if (_isLogin && authResponse.role != _selectedRole) {
         final expectedPortal =
@@ -182,22 +191,49 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  Future<void> _pickProviderImage() async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1400,
+      );
+
+      if (image == null) {
+        return;
+      }
+
+      final bytes = await image.readAsBytes();
+      if (bytes.length > 3 * 1024 * 1024) {
+        _showMessage('Image size must be <= 3 MB.');
+        return;
+      }
+
+      setState(() {
+        _selectedProfileImageBytes = bytes;
+        _selectedProfileImageName = image.name;
+      });
+    } catch (_) {
+      _showMessage('Unable to pick image from gallery.');
+    }
+  }
+
   String _headlineText() {
     if (_portalType == _PortalType.provider) {
-      return _isLogin ? 'Provider Sign In' : 'Create Provider Account';
+      return _isLogin ? 'Welcome to Servico' : 'Register on Servico';
     }
-    return _isLogin ? 'Welcome Back' : 'Create Your Account';
+    return _isLogin ? 'Welcome to Servico' : 'Register on Servico';
   }
 
   String _descriptionText() {
     if (_portalType == _PortalType.provider) {
       return _isLogin
-          ? 'Sign in to manage your services and bookings.'
-          : 'Create a provider account to publish services for customers.';
+          ? 'Provider login: manage your services, reviews, and live orders.'
+          : 'Create your provider account on Servico and publish local services.';
     }
     return _isLogin
-        ? 'Sign in to book trusted local professionals.'
-        : 'Register once to book plumbers and electricians in minutes.';
+        ? 'Sign in to book trusted local professionals in minutes.'
+        : 'Create your Servico account to discover and book nearby experts.';
   }
 
   @override
@@ -241,7 +277,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'Local Service App',
+                                    'Welcome to Servico',
                                     style:
                                         Theme.of(context).textTheme.titleLarge,
                                   ),
@@ -514,11 +550,56 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        TextField(
-          controller: _profileImageUrlController,
-          decoration: const InputDecoration(
-            labelText: 'Profile Image URL',
-            prefixIcon: Icon(Icons.image_outlined),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFD4DDE2)),
+            color: const Color(0xFFF9FCFB),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Profile Image (direct upload)',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: const Color(0xFFE7F0EE),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _selectedProfileImageBytes == null
+                        ? const Icon(Icons.person_outline_rounded)
+                        : Image.memory(
+                            _selectedProfileImageBytes!,
+                            fit: BoxFit.cover,
+                          ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _selectedProfileImageName ?? 'No image selected',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _pickProviderImage,
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: const Text('Choose'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),

@@ -1,8 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/booking_model.dart';
+import '../models/provider_earnings_model.dart';
+import '../models/review_model.dart';
 import '../models/service_model.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
@@ -94,25 +101,37 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
   final _pincodeController = TextEditingController();
-  final _profileImageUrlController = TextEditingController();
   final _experienceController = TextEditingController();
   final _skillsController = TextEditingController();
   final _bioController = TextEditingController();
+  final _imagePicker = ImagePicker();
 
   bool _isLoading = true;
   bool _showWarmupHint = false;
   bool _isSaving = false;
   bool _isProfileSaving = false;
+  bool _isLocationSyncing = false;
+  bool _liveShareEnabled = false;
   int? _editingServiceId;
   int? _deletingServiceId;
+  int? _statusUpdatingBookingId;
+  int? _replyingReviewId;
   List<ServiceModel> _myServices = [];
+  List<BookingModel> _providerBookings = [];
+  List<ReviewModel> _providerReviews = [];
   List<String> _serviceTypes = [];
+  ProviderEarningsModel? _earnings;
   String _displayName = '';
   UserProfile? _providerProfile;
   String? _selectedServiceType;
   String _searchQuery = '';
   _ProviderServiceSort _sortBy = _ProviderServiceSort.newest;
   int _loadRequestVersion = 0;
+  Timer? _liveLocationTimer;
+  final Map<int, TextEditingController> _reviewReplyControllers = {};
+  Uint8List? _selectedProfileImageBytes;
+  String? _selectedProfileImageName;
+  bool _profileImageDirty = false;
 
   @override
   void initState() {
@@ -132,10 +151,13 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     _cityController.dispose();
     _stateController.dispose();
     _pincodeController.dispose();
-    _profileImageUrlController.dispose();
     _experienceController.dispose();
     _skillsController.dispose();
     _bioController.dispose();
+    _liveLocationTimer?.cancel();
+    for (final controller in _reviewReplyControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -160,19 +182,30 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         ApiService.getProviderServices(widget.userId),
         ApiService.getUserProfile(widget.userId),
         ApiService.getServiceTypes(),
+        ApiService.getProviderBookings(widget.userId),
+        ApiService.getProviderReviews(widget.userId),
+        ApiService.getProviderEarnings(providerId: widget.userId),
       ]);
 
       final services = results[0] as List<ServiceModel>;
       final profile = results[1] as UserProfile;
       final serviceTypes = _normalizeServiceTypes(results[2] as List<String>);
+      final providerBookings = results[3] as List<BookingModel>;
+      final providerReviews = results[4] as List<ReviewModel>;
+      final earnings = results[5] as ProviderEarningsModel;
 
       _bindProviderProfileFields(profile);
+      _syncReviewReplyControllers(providerReviews);
 
       if (!mounted) return;
       setState(() {
         _myServices = services;
+        _providerBookings = providerBookings;
+        _providerReviews = providerReviews;
+        _earnings = earnings;
         _displayName = profile.name;
         _providerProfile = profile;
+        _liveShareEnabled = profile.liveLocationSharingEnabled;
         _serviceTypes = serviceTypes;
 
         if (_selectedServiceType == null) {
@@ -186,6 +219,8 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
             : _customServiceOption;
         }
       });
+
+      _refreshLiveLocationTimer();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -206,10 +241,25 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     _cityController.text = profile.city ?? '';
     _stateController.text = profile.state ?? '';
     _pincodeController.text = profile.pincode ?? '';
-    _profileImageUrlController.text = profile.profileImageUrl ?? '';
     _experienceController.text = profile.experienceYears?.toString() ?? '';
     _skillsController.text = profile.skills ?? '';
     _bioController.text = profile.bio ?? '';
+
+    if (!_profileImageDirty) {
+      final imageBase64 = profile.profileImageBase64;
+      if (imageBase64 != null && imageBase64.trim().isNotEmpty) {
+        try {
+          _selectedProfileImageBytes = base64Decode(imageBase64);
+          _selectedProfileImageName = 'profile_image';
+        } catch (_) {
+          _selectedProfileImageBytes = null;
+          _selectedProfileImageName = null;
+        }
+      } else {
+        _selectedProfileImageBytes = null;
+        _selectedProfileImageName = null;
+      }
+    }
   }
 
   List<String> _normalizeServiceTypes(List<String> rawTypes) {
@@ -467,6 +517,256 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     });
   }
 
+  void _syncReviewReplyControllers(List<ReviewModel> reviews) {
+    final validIds = reviews.map((review) => review.id).toSet();
+
+    final obsoleteKeys = _reviewReplyControllers.keys
+        .where((key) => !validIds.contains(key))
+        .toList();
+    for (final key in obsoleteKeys) {
+      _reviewReplyControllers.remove(key)?.dispose();
+    }
+
+    for (final review in reviews) {
+      _reviewReplyControllers.putIfAbsent(
+        review.id,
+        () => TextEditingController(),
+      );
+    }
+  }
+
+  Future<void> _pickProfileImage() async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1600,
+      );
+
+      if (image == null) {
+        return;
+      }
+
+      final bytes = await image.readAsBytes();
+      if (bytes.length > 3 * 1024 * 1024) {
+        _showMessage('Image size must be <= 3 MB.');
+        return;
+      }
+
+      setState(() {
+        _selectedProfileImageBytes = bytes;
+        _selectedProfileImageName = image.name;
+        _profileImageDirty = true;
+      });
+    } catch (_) {
+      _showMessage('Unable to pick image from gallery.');
+    }
+  }
+
+  Future<void> _removeProfileImage() async {
+    setState(() {
+      _isProfileSaving = true;
+    });
+
+    try {
+      final updatedProfile = await ApiService.removeProfileImage(
+        userId: widget.userId,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _providerProfile = updatedProfile;
+        _selectedProfileImageBytes = null;
+        _selectedProfileImageName = null;
+        _profileImageDirty = false;
+      });
+      _showMessage('Profile image removed');
+    } catch (e) {
+      _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProfileSaving = false;
+        });
+      }
+    }
+  }
+
+  void _refreshLiveLocationTimer() {
+    _liveLocationTimer?.cancel();
+    if (!_liveShareEnabled) {
+      return;
+    }
+
+    _liveLocationTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) {
+        _syncCurrentLocation(showSuccessMessage: false);
+      },
+    );
+  }
+
+  Future<bool> _ensureLocationPermission() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showMessage('Please enable device location services.');
+      return false;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      _showMessage('Location permission is required for live tracking.');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> _syncCurrentLocation({bool showSuccessMessage = true}) async {
+    if (_isLocationSyncing) {
+      return;
+    }
+
+    if (!_liveShareEnabled) {
+      _showMessage('Enable live location sharing first.');
+      return;
+    }
+
+    final allowed = await _ensureLocationPermission();
+    if (!allowed) {
+      return;
+    }
+
+    setState(() {
+      _isLocationSyncing = true;
+    });
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final updated = await ApiService.updateProviderLocation(
+        userId: widget.userId,
+        liveLocationSharingEnabled: true,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _providerProfile = updated;
+      });
+
+      if (showSuccessMessage) {
+        _showMessage('Live location updated');
+      }
+    } catch (e) {
+      _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLocationSyncing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleLiveLocationSharing(bool enabled) async {
+    setState(() {
+      _liveShareEnabled = enabled;
+    });
+
+    try {
+      final updated = await ApiService.updateProviderLocation(
+        userId: widget.userId,
+        liveLocationSharingEnabled: enabled,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _providerProfile = updated;
+      });
+
+      _refreshLiveLocationTimer();
+      if (enabled) {
+        await _syncCurrentLocation(showSuccessMessage: false);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _liveShareEnabled = !enabled;
+      });
+      _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _updateBookingStatus(
+    BookingModel booking,
+    String status,
+  ) async {
+    setState(() {
+      _statusUpdatingBookingId = booking.id;
+    });
+
+    try {
+      await ApiService.updateBookingStatusByProvider(
+        bookingId: booking.id,
+        providerId: widget.userId,
+        status: status,
+      );
+
+      await _loadDashboardData();
+      _showMessage('Booking updated to $status');
+    } catch (e) {
+      _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _statusUpdatingBookingId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _replyToReview(ReviewModel review) async {
+    final controller = _reviewReplyControllers[review.id];
+    final reply = controller?.text.trim() ?? '';
+
+    if (reply.isEmpty) {
+      _showMessage('Please write a reply first.');
+      return;
+    }
+
+    setState(() {
+      _replyingReviewId = review.id;
+    });
+
+    try {
+      await ApiService.replyToReview(
+        reviewId: review.id,
+        providerId: widget.userId,
+        response: reply,
+      );
+
+      await _loadDashboardData();
+      _showMessage('Reply submitted');
+    } catch (e) {
+      _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _replyingReviewId = null;
+        });
+      }
+    }
+  }
+
   Future<void> _saveProviderProfile() async {
     final contactNumber = _contactController.text.trim();
     final address = _addressController.text.trim();
@@ -491,22 +791,30 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     });
 
     try {
-      final updatedProfile = await ApiService.updateProviderProfile(
+      var updatedProfile = await ApiService.updateProviderProfile(
         userId: widget.userId,
         contactNumber: contactNumber,
         address: address,
         city: city,
         state: _stateController.text.trim(),
         pincode: _pincodeController.text.trim(),
-        profileImageUrl: _profileImageUrlController.text.trim(),
         experienceYears: experienceYears,
         skills: _skillsController.text.trim(),
         bio: _bioController.text.trim(),
       );
 
+      if (_profileImageDirty && _selectedProfileImageBytes != null) {
+        updatedProfile = await ApiService.uploadProfileImage(
+          userId: widget.userId,
+          fileBytes: _selectedProfileImageBytes!,
+          fileName: _selectedProfileImageName ?? 'provider_profile.jpg',
+        );
+      }
+
       if (!mounted) return;
       setState(() {
         _providerProfile = updatedProfile;
+        _profileImageDirty = false;
       });
       _showMessage('Provider profile updated successfully');
     } catch (e) {
@@ -540,11 +848,36 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     );
   }
 
+  String _statusLabel(String status) {
+    return switch (status) {
+      'PENDING' => 'Pending',
+      'CONFIRMED' => 'Confirmed',
+      'IN_PROGRESS' => 'In Progress',
+      'COMPLETED' => 'Completed',
+      'CANCELLED' => 'Cancelled',
+      _ => status,
+    };
+  }
+
+  Color _statusColor(String status) {
+    return switch (status) {
+      'PENDING' => const Color(0xFF7A8A99),
+      'CONFIRMED' => const Color(0xFF0E6F67),
+      'IN_PROGRESS' => const Color(0xFFCC8B24),
+      'COMPLETED' => const Color(0xFF0A7D5B),
+      'CANCELLED' => const Color(0xFFC0392B),
+      _ => const Color(0xFF607D8B),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleServices = _visibleServices();
     final hasActiveFilter = _searchQuery.trim().isNotEmpty;
     final providerProfile = _providerProfile;
+    final earnings = _earnings;
+    final providerBookings = _providerBookings;
+    final providerReviews = _providerReviews;
 
     return Scaffold(
       body: AppBackground(
@@ -555,7 +888,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
               physics: const BouncingScrollPhysics(),
               slivers: [
                 SliverAppBar(
-                  expandedHeight: 190,
+                  expandedHeight: 210,
                   pinned: true,
                   floating: false,
                   surfaceTintColor: Colors.transparent,
@@ -591,7 +924,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                   flexibleSpace: FlexibleSpaceBar(
                     background: Container(
                       margin: const EdgeInsets.fromLTRB(14, 14, 14, 8),
-                      padding: const EdgeInsets.fromLTRB(18, 72, 18, 18),
+                      padding: const EdgeInsets.fromLTRB(18, 64, 18, 16),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFF0E6F67), Color(0xFF184B46)],
@@ -632,6 +965,8 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                           const SizedBox(height: 8),
                           const Text(
                             'Manage services, prices, and descriptions like a production provider app.',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: Color(0xFFE5F6F3),
                               fontSize: 13,
@@ -768,11 +1103,68 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                               ],
                             ),
                             const SizedBox(height: 10),
-                            TextField(
-                              controller: _profileImageUrlController,
-                              decoration: const InputDecoration(
-                                labelText: 'Profile Image URL',
-                                prefixIcon: Icon(Icons.image_outlined),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFD4DDE2)),
+                                color: const Color(0xFFF9FCFB),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Profile Image (stored in database)',
+                                    style: Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 58,
+                                        height: 58,
+                                        clipBehavior: Clip.antiAlias,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFE7F0EE),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: _selectedProfileImageBytes == null
+                                            ? const Icon(Icons.person_outline_rounded)
+                                            : Image.memory(
+                                                _selectedProfileImageBytes!,
+                                                fit: BoxFit.cover,
+                                              ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          _selectedProfileImageName ?? 'No image selected',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: _isProfileSaving ? null : _pickProfileImage,
+                                        icon: const Icon(Icons.upload_file_rounded),
+                                        label: const Text('Choose Image'),
+                                      ),
+                                      if (_selectedProfileImageBytes != null)
+                                        OutlinedButton.icon(
+                                          onPressed: _isProfileSaving ? null : _removeProfileImage,
+                                          icon: const Icon(Icons.delete_outline_rounded),
+                                          label: const Text('Remove'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -856,6 +1248,346 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                                 ),
                               ),
                             ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Live Location Sharing',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Share your current device location to power live order tracking.',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 10),
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              value: _liveShareEnabled,
+                              onChanged: _isLocationSyncing ? null : _toggleLiveLocationSharing,
+                              title: const Text('Enable live location sharing'),
+                              subtitle: Text(
+                                _liveShareEnabled
+                                    ? 'Customers can track your current location during active orders.'
+                                    : 'Customers will only see booking status updates.',
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    providerProfile?.liveLatitude == null ||
+                                            providerProfile?.liveLongitude == null
+                                        ? 'No location synced yet'
+                                        : 'Lat ${providerProfile!.liveLatitude!.toStringAsFixed(5)}, Lng ${providerProfile.liveLongitude!.toStringAsFixed(5)}',
+                                    style: Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton.icon(
+                                  onPressed: (!_liveShareEnabled || _isLocationSyncing)
+                                      ? null
+                                      : () => _syncCurrentLocation(),
+                                  icon: _isLocationSyncing
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.my_location_rounded),
+                                  label: Text(_isLocationSyncing ? 'Syncing' : 'Sync Now'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Earning Dashboard',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _StatPill(
+                                  label: 'Total',
+                                  value: 'Rs ${(earnings?.totalEarnings ?? 0).toStringAsFixed(0)}',
+                                ),
+                                _StatPill(
+                                  label: 'Today',
+                                  value: 'Rs ${(earnings?.todayEarnings ?? 0).toStringAsFixed(0)}',
+                                ),
+                                _StatPill(
+                                  label: 'Month',
+                                  value: 'Rs ${(earnings?.thisMonthEarnings ?? 0).toStringAsFixed(0)}',
+                                ),
+                                _StatPill(
+                                  label: 'Completed',
+                                  value: '${earnings?.completedOrders ?? 0}',
+                                ),
+                              ],
+                            ),
+                            if (earnings != null && earnings.recentCompletedOrders.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Recent completed orders',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              ...earnings.recentCompletedOrders.take(4).map(
+                                (item) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF5F9F8),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            item.serviceName ?? 'Service',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Rs ${item.amount.toStringAsFixed(0)}',
+                                          style: const TextStyle(fontWeight: FontWeight.w700),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Order Tracking Management',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            if (providerBookings.isEmpty)
+                              Text(
+                                'No provider bookings yet.',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              )
+                            else
+                              ...providerBookings.take(8).map(
+                                (booking) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFFDCE4E8)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                booking.serviceName ?? 'Service #${booking.serviceId}',
+                                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: _statusColor(booking.status).withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(999),
+                                              ),
+                                              child: Text(
+                                                _statusLabel(booking.status),
+                                                style: TextStyle(
+                                                  color: _statusColor(booking.status),
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text('Date: ${booking.date}'),
+                                        if (booking.trackingNote != null &&
+                                            booking.trackingNote!.trim().isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4),
+                                            child: Text('Note: ${booking.trackingNote}'),
+                                          ),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: ['CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+                                              .map(
+                                                (status) => ActionChip(
+                                                  onPressed: _statusUpdatingBookingId == booking.id ||
+                                                          booking.status == status
+                                                      ? null
+                                                      : () => _updateBookingStatus(booking, status),
+                                                  label: Text(_statusLabel(status)),
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Review Management',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            if (providerReviews.isEmpty)
+                              Text(
+                                'No customer reviews yet.',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              )
+                            else
+                              ...providerReviews.take(8).map(
+                                (review) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFFDCE4E8)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                review.serviceName ?? 'Service #${review.serviceId}',
+                                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                              ),
+                                            ),
+                                            Text('Rating ${review.rating}/5'),
+                                          ],
+                                        ),
+                                        if (review.comment != null &&
+                                            review.comment!.trim().isNotEmpty)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 6),
+                                            child: Text(review.comment!),
+                                          ),
+                                        const SizedBox(height: 8),
+                                        if (review.providerResponse != null &&
+                                            review.providerResponse!.trim().isNotEmpty)
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F7F5),
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            child: Text('Your reply: ${review.providerResponse}'),
+                                          )
+                                        else ...[
+                                          TextField(
+                                            controller: _reviewReplyControllers[review.id],
+                                            maxLines: 2,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Write a reply',
+                                              prefixIcon: Icon(Icons.reply_rounded),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: ElevatedButton.icon(
+                                              onPressed: _replyingReviewId == review.id
+                                                  ? null
+                                                  : () => _replyToReview(review),
+                                              icon: _replyingReviewId == review.id
+                                                  ? const SizedBox(
+                                                      width: 14,
+                                                      height: 14,
+                                                      child: CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: Colors.white,
+                                                      ),
+                                                    )
+                                                  : const Icon(Icons.send_rounded),
+                                              label: const Text('Reply'),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -1212,6 +1944,35 @@ class _MetricCard extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatPill extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StatPill({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F8F7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD4E0DE)),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
         ),
       ),
     );

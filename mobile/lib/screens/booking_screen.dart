@@ -154,7 +154,12 @@ class _BookingScreenState extends State<BookingScreen> {
     final selectedMeta = _serviceMeta(widget.service.name);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Book Service')),
+      appBar: AppBar(
+        title: const Text('Book Service'),
+        backgroundColor: const Color(0xFFF2F7F4),
+        foregroundColor: AppTheme.textPrimary,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: AppBackground(
         child: SafeArea(
           child: AnimatedOpacity(

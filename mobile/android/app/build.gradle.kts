@@ -42,3 +42,5 @@ android {
 flutter {
     source = "../.."
 }
+
+setProperty("archivesBaseName", "Servico")
