@@ -32,6 +32,8 @@ class _AuthScreenState extends State<AuthScreen> {
   final _skillsController = TextEditingController();
   final _bioController = TextEditingController();
   final _imagePicker = ImagePicker();
+  final ScrollController _scrollController =
+      ScrollController(keepScrollOffset: false);
 
   bool _isLogin = true;
   bool _isLoading = false;
@@ -44,7 +46,18 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _resetScrollPosition(jump: true);
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _scrollController.dispose();
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -179,6 +192,27 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  void _resetScrollPosition({bool jump = false}) {
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    if (!_scrollController.hasClients) {
+      return;
+    }
+
+    final targetOffset = _scrollController.position.minScrollExtent;
+
+    if (jump) {
+      _scrollController.jumpTo(targetOffset);
+      return;
+    }
+
+    _scrollController.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
+  }
+
   Future<void> _pickProviderImage() async {
     try {
       final image = await _imagePicker.pickImage(
@@ -229,143 +263,157 @@ class _AuthScreenState extends State<AuthScreen> {
     return Scaffold(
       body: AppBackground(
         child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-                child: ConstrainedBox(
-                  constraints:
-                      BoxConstraints(minHeight: constraints.maxHeight - 16),
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 460),
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.brand,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Icon(
-                                      Icons.room_service_rounded,
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              20 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: AppTheme.brand,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.room_service_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Welcome to Servico',
+                                style:
+                                    Theme.of(context).textTheme.titleLarge,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        _buildPortalSelector(context),
+                        const SizedBox(height: 14),
+                        Text(
+                          _headlineText(),
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _descriptionText(),
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 18),
+                        _buildModeSelector(context),
+                        const SizedBox(height: 18),
+                        if (_isLoading) ...[
+                          const LinearProgressIndicator(minHeight: 3),
+                          const SizedBox(height: 8),
+                          Text(
+                            _isLogin
+                                ? 'Signing in...'
+                                : 'Creating your account...',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (!_isLogin) ...[
+                          TextField(
+                            controller: _nameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Full Name',
+                              prefixIcon: Icon(Icons.person_outline),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (!_isLogin &&
+                            _portalType == _PortalType.provider)
+                          _buildProviderRegistrationFields(),
+                        TextField(
+                          controller: _emailController,
+                          decoration: const InputDecoration(
+                            labelText: 'Email Address',
+                            prefixIcon:
+                                Icon(Icons.alternate_email_rounded),
+                          ),
+                          keyboardType: TextInputType.emailAddress,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _passwordController,
+                          decoration: const InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: Icon(Icons.lock_outline_rounded),
+                          ),
+                          obscureText: true,
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _submit,
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                       color: Colors.white,
                                     ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Welcome to Servico',
-                                      style:
-                                          Theme.of(context).textTheme.titleLarge,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 18),
-                              _buildPortalSelector(context),
-                              const SizedBox(height: 14),
-                              Text(
-                                _headlineText(),
-                                style: Theme.of(context).textTheme.headlineMedium,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                _descriptionText(),
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                              const SizedBox(height: 18),
-                              _buildModeSelector(context),
-                              const SizedBox(height: 18),
-                              if (!_isLogin) ...[
-                                TextField(
-                                  controller: _nameController,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Full Name',
-                                    prefixIcon: Icon(Icons.person_outline),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                              if (!_isLogin &&
-                                  _portalType == _PortalType.provider)
-                                _buildProviderRegistrationFields(),
-                              TextField(
-                                controller: _emailController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Email Address',
-                                  prefixIcon:
-                                      Icon(Icons.alternate_email_rounded),
-                                ),
-                                keyboardType: TextInputType.emailAddress,
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: _passwordController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Password',
-                                  prefixIcon: Icon(Icons.lock_outline_rounded),
-                                ),
-                                obscureText: true,
-                              ),
-                              const SizedBox(height: 20),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: _isLoading ? null : _submit,
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          width: 22,
-                                          height: 22,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : Text(
-                                          _isLogin
-                                              ? 'Sign In'
-                                              : 'Create Account',
-                                        ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Center(
-                                child: TextButton(
-                                  onPressed: _isLoading
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _isLogin = !_isLogin;
-                                          });
-                                        },
-                                  child: Text(
+                                  )
+                                : Text(
                                     _isLogin
-                                        ? 'New here? Switch to register'
-                                        : 'Already registered? Switch to login',
+                                        ? 'Sign In'
+                                        : 'Create Account',
                                   ),
-                                ),
-                              ),
-                            ],
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _isLogin = !_isLogin;
+                                    });
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                      if (mounted) {
+                                        _resetScrollPosition(jump: true);
+                                      }
+                                    });
+                                  },
+                            child: Text(
+                              _isLogin
+                                  ? 'New here? Switch to register'
+                                  : 'Already registered? Switch to login',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ),
@@ -399,6 +447,11 @@ class _AuthScreenState extends State<AuthScreen> {
                           setState(() {
                             _portalType = _PortalType.customer;
                           });
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              _resetScrollPosition(jump: true);
+                            }
+                          });
                         },
                 ),
               ),
@@ -411,6 +464,11 @@ class _AuthScreenState extends State<AuthScreen> {
                       : () {
                           setState(() {
                             _portalType = _PortalType.provider;
+                          });
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              _resetScrollPosition(jump: true);
+                            }
                           });
                         },
                 ),
@@ -441,6 +499,11 @@ class _AuthScreenState extends State<AuthScreen> {
                       setState(() {
                         _isLogin = true;
                       });
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          _resetScrollPosition(jump: true);
+                        }
+                      });
                     },
             ),
           ),
@@ -453,6 +516,11 @@ class _AuthScreenState extends State<AuthScreen> {
                   : () {
                       setState(() {
                         _isLogin = false;
+                      });
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          _resetScrollPosition(jump: true);
+                        }
                       });
                     },
             ),
