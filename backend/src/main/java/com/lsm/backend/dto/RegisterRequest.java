@@ -10,4 +10,12 @@ public class RegisterRequest {
     private String email;
     private String password;
     private Role role;
+    private String contactNumber;
+    private String address;
+    private String city;
+    private String state;
+    private String pincode;
+    private Integer experienceYears;
+    private String skills;
+    private String bio;
 }

@@ -20,6 +20,15 @@ class _AuthScreenState extends State<AuthScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _contactController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _stateController = TextEditingController();
+  final _pincodeController = TextEditingController();
+  final _profileImageUrlController = TextEditingController();
+  final _experienceController = TextEditingController();
+  final _skillsController = TextEditingController();
+  final _bioController = TextEditingController();
 
   bool _isLogin = true;
   bool _isLoading = false;
@@ -46,15 +55,43 @@ class _AuthScreenState extends State<AuthScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _contactController.dispose();
+    _addressController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
+    _pincodeController.dispose();
+    _profileImageUrlController.dispose();
+    _experienceController.dispose();
+    _skillsController.dispose();
+    _bioController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
+    final isProviderRegistration = !_isLogin && _portalType == _PortalType.provider;
+
     if (_emailController.text.trim().isEmpty ||
         _passwordController.text.trim().isEmpty ||
         (!_isLogin && _nameController.text.trim().isEmpty)) {
       _showMessage('Please fill all required fields');
       return;
+    }
+
+    if (isProviderRegistration &&
+        (_contactController.text.trim().isEmpty ||
+            _addressController.text.trim().isEmpty ||
+            _cityController.text.trim().isEmpty)) {
+      _showMessage('Provider registration needs contact number, address and city.');
+      return;
+    }
+
+    int? experienceYears;
+    if (_experienceController.text.trim().isNotEmpty) {
+      experienceYears = int.tryParse(_experienceController.text.trim());
+      if (experienceYears == null || experienceYears < 0) {
+        _showMessage('Experience must be a valid non-negative number.');
+        return;
+      }
     }
 
     setState(() {
@@ -72,6 +109,25 @@ class _AuthScreenState extends State<AuthScreen> {
               email: _emailController.text.trim(),
               password: _passwordController.text.trim(),
               role: _selectedRole,
+              contactNumber: isProviderRegistration
+                ? _contactController.text.trim()
+                : null,
+              address: isProviderRegistration
+                ? _addressController.text.trim()
+                : null,
+              city: isProviderRegistration ? _cityController.text.trim() : null,
+              state: isProviderRegistration ? _stateController.text.trim() : null,
+              pincode: isProviderRegistration
+                ? _pincodeController.text.trim()
+                : null,
+              profileImageUrl: isProviderRegistration
+                ? _profileImageUrlController.text.trim()
+                : null,
+              experienceYears: isProviderRegistration ? experienceYears : null,
+              skills: isProviderRegistration
+                ? _skillsController.text.trim()
+                : null,
+              bio: isProviderRegistration ? _bioController.text.trim() : null,
             );
 
       if (_isLogin && authResponse.role != _selectedRole) {
@@ -226,6 +282,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                       key: ValueKey('nameHidden'),
                                     ),
                             ),
+                            if (!_isLogin && _portalType == _PortalType.provider)
+                              _buildProviderRegistrationFields(),
                             TextField(
                               controller: _emailController,
                               decoration: const InputDecoration(
@@ -382,6 +440,98 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProviderRegistrationFields() {
+    return Column(
+      children: [
+        const SizedBox(height: 8),
+        TextField(
+          controller: _contactController,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Contact Number *',
+            prefixIcon: Icon(Icons.phone_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _addressController,
+          decoration: const InputDecoration(
+            labelText: 'Address *',
+            prefixIcon: Icon(Icons.home_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _cityController,
+          decoration: const InputDecoration(
+            labelText: 'City *',
+            prefixIcon: Icon(Icons.location_city_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _stateController,
+                decoration: const InputDecoration(
+                  labelText: 'State',
+                  prefixIcon: Icon(Icons.map_outlined),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _pincodeController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Pincode',
+                  prefixIcon: Icon(Icons.pin_drop_outlined),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _experienceController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Experience (years)',
+            prefixIcon: Icon(Icons.work_history_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _skillsController,
+          decoration: const InputDecoration(
+            labelText: 'Skills (comma separated)',
+            prefixIcon: Icon(Icons.handyman_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _profileImageUrlController,
+          decoration: const InputDecoration(
+            labelText: 'Profile Image URL',
+            prefixIcon: Icon(Icons.image_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _bioController,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            labelText: 'Professional Bio',
+            prefixIcon: Icon(Icons.notes_outlined),
+          ),
+        ),
+        const SizedBox(height: 4),
+      ],
     );
   }
 }

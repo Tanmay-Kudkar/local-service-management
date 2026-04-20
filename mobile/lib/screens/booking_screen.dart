@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/booking_model.dart';
@@ -5,6 +7,7 @@ import '../models/service_model.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
+import '../widgets/server_warmup_loading.dart';
 
 class BookingScreen extends StatefulWidget {
   final int userId;
@@ -24,9 +27,11 @@ class _BookingScreenState extends State<BookingScreen> {
   DateTime _selectedDate = DateTime.now();
   bool _isBooking = false;
   bool _isLoadingBookings = false;
+  bool _showWarmupHint = false;
   List<BookingModel> _bookings = [];
   Map<int, ServiceModel> _serviceLookup = {};
   bool _showContent = false;
+  int _loadRequestVersion = 0;
 
   @override
   void initState() {
@@ -87,8 +92,19 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Future<void> _loadBookings() async {
+    final requestVersion = ++_loadRequestVersion;
     setState(() {
       _isLoadingBookings = true;
+      _showWarmupHint = false;
+    });
+
+    Timer(const Duration(milliseconds: 1300), () {
+      if (!mounted) return;
+      if (_isLoadingBookings && requestVersion == _loadRequestVersion) {
+        setState(() {
+          _showWarmupHint = true;
+        });
+      }
     });
 
     try {
@@ -107,10 +123,15 @@ class _BookingScreenState extends State<BookingScreen> {
           for (final service in services) service.id: service,
         };
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      final message = e.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not load bookings')), 
+        SnackBar(
+          content: Text(
+            message.isEmpty ? 'Could not load bookings' : message,
+          ),
+        ), 
       );
     } finally {
       if (mounted) {
@@ -261,10 +282,20 @@ class _BookingScreenState extends State<BookingScreen> {
                   ),
                 ),
                 if (_isLoadingBookings)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 28),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
+                  ...[
+                    ServerWarmupBanner(
+                      showWarmupMessage: _showWarmupHint,
+                      title: 'Loading booking history',
+                    ),
+                    const SizedBox(height: 10),
+                    ...List.generate(
+                      3,
+                      (_) => const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: BookingHistorySkeletonTile(),
+                      ),
+                    ),
+                  ]
                 else if (_bookings.isEmpty)
                   Card(
                     child: Padding(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -5,6 +7,7 @@ import '../models/service_model.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
+import '../widgets/server_warmup_loading.dart';
 import 'auth_screen.dart';
 import 'booking_screen.dart';
 
@@ -24,9 +27,11 @@ class ServiceListScreen extends StatefulWidget {
 
 class _ServiceListScreenState extends State<ServiceListScreen> {
   bool _isLoading = true;
+  bool _showWarmupHint = false;
   List<ServiceModel> _services = [];
   bool _showContent = false;
   String _displayName = '';
+  int _loadRequestVersion = 0;
 
   @override
   void initState() {
@@ -43,8 +48,19 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   }
 
   Future<void> _loadServices() async {
+    final requestVersion = ++_loadRequestVersion;
     setState(() {
       _isLoading = true;
+      _showWarmupHint = false;
+    });
+
+    Timer(const Duration(milliseconds: 1300), () {
+      if (!mounted) return;
+      if (_isLoading && requestVersion == _loadRequestVersion) {
+        setState(() {
+          _showWarmupHint = true;
+        });
+      }
     });
 
     try {
@@ -53,10 +69,15 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       setState(() {
         _services = services;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      final message = e.toString().replaceFirst('Exception: ', '');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to load services')),
+        SnackBar(
+          content: Text(
+            message.isEmpty ? 'Failed to load services' : message,
+          ),
+        ),
       );
     } finally {
       if (mounted) {
@@ -89,6 +110,27 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       context,
       MaterialPageRoute(builder: (_) => const AuthScreen()),
       (route) => false,
+    );
+  }
+
+  void _showProviderDetails(ServiceModel service) {
+    if (service.providerName == null || service.providerName!.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Provider profile is not available for this service yet.'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return _ProviderDetailsSheet(service: service);
+      },
     );
   }
 
@@ -176,17 +218,36 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                     child: Text(
                       _isLoading
-                          ? 'Loading services...'
+                          ? (_showWarmupHint
+                              ? 'Waking up server and loading services...'
+                              : 'Loading services...')
                           : '${_services.length} services ready to book',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ),
                 ),
                 if (_isLoading)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
+                  ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: ServerWarmupBanner(
+                          showWarmupMessage: _showWarmupHint,
+                          title: 'Loading services',
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      sliver: SliverList.builder(
+                        itemCount: 5,
+                        itemBuilder: (context, index) => const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: ServiceSkeletonCard(),
+                        ),
+                      ),
+                    ),
+                  ]
                 else if (_services.isEmpty)
                   SliverFillRemaining(
                     hasScrollBody: false,
@@ -229,6 +290,9 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                                   ),
                                 );
                               },
+                              onProviderDetails: () {
+                                _showProviderDetails(service);
+                              },
                             ),
                           ),
                         );
@@ -247,8 +311,13 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
 class _ServiceCard extends StatelessWidget {
   final ServiceModel service;
   final VoidCallback onBook;
+  final VoidCallback onProviderDetails;
 
-  const _ServiceCard({required this.service, required this.onBook});
+  const _ServiceCard({
+    required this.service,
+    required this.onBook,
+    required this.onProviderDetails,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -320,17 +389,75 @@ class _ServiceCard extends StatelessWidget {
                       displayHint,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                    if (service.providerName != null && service.providerName!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECF7F4),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              service.providerVerified
+                                  ? 'Provider: ${service.providerName} (Verified)'
+                                  : 'Provider: ${service.providerName}',
+                              style: const TextStyle(
+                                color: Color(0xFF0E6F67),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          if (service.providerCity != null && service.providerCity!.trim().isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0F4F7),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                service.providerCity!,
+                                style: const TextStyle(
+                                  color: Color(0xFF335066),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: onBook,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(76, 42),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                child: const Text('Book'),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: onBook,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(76, 42),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    child: const Text('Book'),
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: onProviderDetails,
+                    child: const Text('Provider'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -381,6 +508,202 @@ _ServiceMeta _serviceMeta(String serviceName) {
     badge: 'General',
     hint: 'Trusted local support near you',
   );
+}
+
+class _ProviderDetailsSheet extends StatelessWidget {
+  final ServiceModel service;
+
+  const _ProviderDetailsSheet({required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    final providerName = service.providerName ?? 'Provider';
+    final providerCity = service.providerCity?.trim() ?? '';
+    final providerState = service.providerState?.trim() ?? '';
+    final providerAddress = service.providerAddress?.trim() ?? '';
+    final providerContact = service.providerContactNumber?.trim() ?? '';
+    final providerSkills = service.providerSkills?.trim() ?? '';
+    final providerBio = service.providerBio?.trim() ?? '';
+
+    final locationParts = [
+      if (providerCity.isNotEmpty) providerCity,
+      if (providerState.isNotEmpty) providerState,
+    ];
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFFF5FBFA),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: const Color(0xFFD4ECE8),
+                    backgroundImage: service.providerProfileImageUrl != null
+                            && service.providerProfileImageUrl!.trim().isNotEmpty
+                        ? NetworkImage(service.providerProfileImageUrl!)
+                        : null,
+                    child: service.providerProfileImageUrl == null
+                            || service.providerProfileImageUrl!.trim().isEmpty
+                        ? const Icon(
+                            Icons.person_rounded,
+                            color: AppTheme.brand,
+                            size: 30,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          providerName,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          service.providerVerified
+                              ? 'Verified Provider'
+                              : 'Provider',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDDF3EE),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'Rating ${service.providerRatingAverage.toStringAsFixed(1)} (${service.providerTotalReviews} reviews)',
+                      style: const TextStyle(
+                        color: Color(0xFF0E6F67),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  if (service.providerExperienceYears != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F4F7),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${service.providerExperienceYears} yrs experience',
+                        style: const TextStyle(
+                          color: Color(0xFF335066),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  if (locationParts.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F4F7),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        locationParts.join(', '),
+                        style: const TextStyle(
+                          color: Color(0xFF335066),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              if (providerContact.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                _DetailRow(icon: Icons.phone_outlined, label: 'Contact', value: providerContact),
+              ],
+              if (providerAddress.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _DetailRow(icon: Icons.home_outlined, label: 'Address', value: providerAddress),
+              ],
+              if (providerSkills.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _DetailRow(icon: Icons.handyman_outlined, label: 'Skills', value: providerSkills),
+              ],
+              if (providerBio.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _DetailRow(icon: Icons.notes_outlined, label: 'Bio', value: providerBio),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Done'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF335066)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: Theme.of(context).textTheme.bodyMedium,
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {

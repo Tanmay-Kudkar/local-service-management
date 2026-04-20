@@ -1,9 +1,11 @@
 package com.lsm.backend.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.lsm.backend.dto.ServiceCatalogItemResponse;
 import com.lsm.backend.dto.ServiceCreateRequest;
 import com.lsm.backend.dto.ServiceUpdateRequest;
 import com.lsm.backend.entity.ServiceEntity;
@@ -30,8 +33,24 @@ public class ServiceController {
     }
 
     @GetMapping
-    public List<ServiceEntity> getServices() {
-        return serviceCatalogService.getAllServices();
+    public List<ServiceCatalogItemResponse> getServices(
+            @RequestParam(required = false) Double minPrice,
+            @RequestParam(required = false) Double maxPrice,
+            @RequestParam(required = false) Double minRating,
+            @RequestParam(required = false) Double maxDistanceKm,
+            @RequestParam(required = false) Double userLatitude,
+            @RequestParam(required = false) Double userLongitude,
+            @RequestParam(required = false) Boolean onlyAvailable,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate availableDate) {
+        return serviceCatalogService.getAllServicesForCatalog(
+                minPrice,
+                maxPrice,
+                minRating,
+                maxDistanceKm,
+                userLatitude,
+                userLongitude,
+                onlyAvailable,
+                availableDate);
     }
 
     @GetMapping("/types")

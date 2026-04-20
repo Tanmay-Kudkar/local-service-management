@@ -24,15 +24,33 @@ public class AuthService {
             throw new BadRequestException("Name, email and password are required");
         }
 
-        if (userRepository.existsByEmail(request.getEmail())) {
+        String name = request.getName().trim();
+        String email = request.getEmail().trim();
+        String password = request.getPassword().trim();
+
+        if (name.isEmpty() || email.isEmpty() || password.isEmpty()) {
+            throw new BadRequestException("Name, email and password cannot be empty");
+        }
+
+        if (userRepository.existsByEmail(email)) {
             throw new BadRequestException("Email already registered");
         }
 
+        Role role = request.getRole() == null ? Role.USER : request.getRole();
+
+        if (role == Role.PROVIDER) {
+            validateProviderRegistrationData(request);
+        }
+
         User user = new User();
-        user.setName(request.getName());
-        user.setEmail(request.getEmail());
-        user.setPassword(request.getPassword());
-        user.setRole(request.getRole() == null ? Role.USER : request.getRole());
+        user.setName(name);
+        user.setEmail(email);
+        user.setPassword(password);
+        user.setRole(role);
+        applyProviderProfileFields(user, request);
+        user.setVerified(false);
+        user.setRatingAverage(0.0);
+        user.setTotalReviews(0);
 
         User savedUser = userRepository.save(user);
         return new AuthResponse(
@@ -69,5 +87,41 @@ public class AuthService {
             userRepository.save(user);
         }
         return user.getRole();
+    }
+
+    private void validateProviderRegistrationData(RegisterRequest request) {
+        if (isBlank(request.getContactNumber())
+                || isBlank(request.getAddress())
+                || isBlank(request.getCity())) {
+            throw new BadRequestException("Provider registration requires contact number, address and city");
+        }
+
+        if (request.getExperienceYears() != null && request.getExperienceYears() < 0) {
+            throw new BadRequestException("experienceYears cannot be negative");
+        }
+    }
+
+    private void applyProviderProfileFields(User user, RegisterRequest request) {
+        user.setContactNumber(normalizeNullableText(request.getContactNumber()));
+        user.setAddress(normalizeNullableText(request.getAddress()));
+        user.setCity(normalizeNullableText(request.getCity()));
+        user.setState(normalizeNullableText(request.getState()));
+        user.setPincode(normalizeNullableText(request.getPincode()));
+        user.setExperienceYears(request.getExperienceYears());
+        user.setSkills(normalizeNullableText(request.getSkills()));
+        user.setBio(normalizeNullableText(request.getBio()));
+    }
+
+    private String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }
