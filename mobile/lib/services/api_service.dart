@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/auth_response.dart';
@@ -7,7 +8,12 @@ import '../models/booking_model.dart';
 import '../models/service_model.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://10.0.2.2:8080';
+  static String get baseUrl {
+    if (kIsWeb) {
+      return 'http://localhost:8080';
+    }
+    return 'http://10.0.2.2:8080';
+  }
 
   static Future<AuthResponse> register({
     required String name,

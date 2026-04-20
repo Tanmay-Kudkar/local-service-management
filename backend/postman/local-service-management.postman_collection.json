@@ -12,7 +12,7 @@
         "header": [
           {
             "key": "Content-Type",
-            "value": "application/json"
+            "value": "application/jsodddn"
           }
         ],
         "body": {

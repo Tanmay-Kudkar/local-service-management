@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/auth_screen.dart';
 import 'screens/service_list_screen.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,10 +23,7 @@ class LocalServiceApp extends StatelessWidget {
     return MaterialApp(
       title: 'Local Service App',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme(),
       home: savedUserId == null
           ? const AuthScreen()
           : ServiceListScreen(userId: savedUserId!),
