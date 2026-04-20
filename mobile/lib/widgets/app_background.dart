@@ -18,7 +18,7 @@ class AppBackground extends StatelessWidget {
             right: -60,
             child: _GlowBlob(
               size: 220,
-              color: AppTheme.brand.withOpacity(0.14),
+              color: AppTheme.brand.withValues(alpha: 0.14),
             ),
           ),
           Positioned(
@@ -26,7 +26,7 @@ class AppBackground extends StatelessWidget {
             left: -70,
             child: _GlowBlob(
               size: 260,
-              color: AppTheme.accent.withOpacity(0.16),
+              color: AppTheme.accent.withValues(alpha: 0.16),
             ),
           ),
           Positioned.fill(child: child),

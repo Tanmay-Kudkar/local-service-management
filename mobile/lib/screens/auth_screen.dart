@@ -4,7 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
+import 'provider_dashboard_screen.dart';
 import 'service_list_screen.dart';
+
+enum _PortalType { customer, provider }
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -21,6 +24,11 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isLogin = true;
   bool _isLoading = false;
   bool _showContent = false;
+  _PortalType _portalType = _PortalType.customer;
+
+  String get _selectedRole {
+    return _portalType == _PortalType.customer ? 'USER' : 'PROVIDER';
+  }
 
   @override
   void initState() {
@@ -63,16 +71,42 @@ class _AuthScreenState extends State<AuthScreen> {
               name: _nameController.text.trim(),
               email: _emailController.text.trim(),
               password: _passwordController.text.trim(),
+              role: _selectedRole,
             );
+
+      if (_isLogin && authResponse.role != _selectedRole) {
+        final expectedPortal =
+            authResponse.role == 'PROVIDER' ? 'Provider' : 'Customer';
+        _showMessage('Use the $expectedPortal section for this account.');
+        return;
+      }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('userId', authResponse.userId);
+      await prefs.setString('userName', authResponse.name);
+      await prefs.setString('userRole', authResponse.role);
 
       if (!mounted) return;
+      if (authResponse.role == 'PROVIDER') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProviderDashboardScreen(
+              userId: authResponse.userId,
+              userName: authResponse.name,
+            ),
+          ),
+        );
+        return;
+      }
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => ServiceListScreen(userId: authResponse.userId),
+          builder: (_) => ServiceListScreen(
+            userId: authResponse.userId,
+            userName: authResponse.name,
+          ),
         ),
       );
     } catch (e) {
@@ -90,6 +124,24 @@ class _AuthScreenState extends State<AuthScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  String _headlineText() {
+    if (_portalType == _PortalType.provider) {
+      return _isLogin ? 'Provider Sign In' : 'Create Provider Account';
+    }
+    return _isLogin ? 'Welcome Back' : 'Create Your Account';
+  }
+
+  String _descriptionText() {
+    if (_portalType == _PortalType.provider) {
+      return _isLogin
+          ? 'Sign in to manage your services and bookings.'
+          : 'Create a provider account to publish services for customers.';
+    }
+    return _isLogin
+        ? 'Sign in to book trusted local professionals.'
+        : 'Register once to book plumbers and electricians in minutes.';
   }
 
   @override
@@ -141,15 +193,15 @@ class _AuthScreenState extends State<AuthScreen> {
                               ],
                             ),
                             const SizedBox(height: 18),
+                            _buildPortalSelector(context),
+                            const SizedBox(height: 14),
                             Text(
-                              _isLogin ? 'Welcome Back' : 'Create Your Account',
+                              _headlineText(),
                               style: Theme.of(context).textTheme.headlineMedium,
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              _isLogin
-                                  ? 'Sign in to book trusted local professionals.'
-                                  : 'Register once to book plumbers and electricians in minutes.',
+                              _descriptionText(),
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                             const SizedBox(height: 18),
@@ -205,7 +257,11 @@ class _AuthScreenState extends State<AuthScreen> {
                                           color: Colors.white,
                                         ),
                                       )
-                                    : Text(_isLogin ? 'Sign In' : 'Create Account'),
+                                    : Text(
+                                        _isLogin
+                                            ? 'Sign In'
+                                            : 'Create Account',
+                                      ),
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -239,11 +295,61 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  Widget _buildPortalSelector(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Portal',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: AppTheme.brand.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _ModeButton(
+                  title: 'Customer',
+                  selected: _portalType == _PortalType.customer,
+                  onTap: _isLoading
+                      ? null
+                      : () {
+                          setState(() {
+                            _portalType = _PortalType.customer;
+                          });
+                        },
+                ),
+              ),
+              Expanded(
+                child: _ModeButton(
+                  title: 'Provider',
+                  selected: _portalType == _PortalType.provider,
+                  onTap: _isLoading
+                      ? null
+                      : () {
+                          setState(() {
+                            _portalType = _PortalType.provider;
+                          });
+                        },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildModeSelector(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppTheme.brand.withOpacity(0.08),
+        color: AppTheme.brand.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(

@@ -32,10 +32,14 @@ public class AuthService {
         user.setName(request.getName());
         user.setEmail(request.getEmail());
         user.setPassword(request.getPassword());
-        user.setRole(Role.USER);
+        user.setRole(request.getRole() == null ? Role.USER : request.getRole());
 
         User savedUser = userRepository.save(user);
-        return new AuthResponse(savedUser.getId(), "Registration successful");
+        return new AuthResponse(
+            savedUser.getId(),
+            savedUser.getName(),
+            normalizeRole(savedUser).name(),
+            "Registration successful");
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -50,6 +54,20 @@ public class AuthService {
             throw new BadRequestException("Invalid email or password");
         }
 
-        return new AuthResponse(user.getId(), "Login successful");
+        Role role = normalizeRole(user);
+
+        return new AuthResponse(
+            user.getId(),
+            user.getName(),
+            role.name(),
+            "Login successful");
+    }
+
+    private Role normalizeRole(User user) {
+        if (user.getRole() == null) {
+            user.setRole(Role.USER);
+            userRepository.save(user);
+        }
+        return user.getRole();
     }
 }

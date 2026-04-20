@@ -67,7 +67,7 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-            color: brand.withOpacity(0.08),
+            color: brand.withValues(alpha: 0.08),
           ),
         ),
       ),
@@ -77,11 +77,11 @@ class AppTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: brand.withOpacity(0.18)),
+          borderSide: BorderSide(color: brand.withValues(alpha: 0.18)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: brand.withOpacity(0.18)),
+          borderSide: BorderSide(color: brand.withValues(alpha: 0.18)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -106,7 +106,7 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(50),
-          side: BorderSide(color: brand.withOpacity(0.28)),
+          side: BorderSide(color: brand.withValues(alpha: 0.28)),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),

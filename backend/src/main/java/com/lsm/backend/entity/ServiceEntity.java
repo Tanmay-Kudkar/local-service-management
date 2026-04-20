@@ -21,9 +21,14 @@ public class ServiceEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String name;
 
     @Column(nullable = false)
     private Double price;
+
+    @Column(length = 500)
+    private String description;
+
+    private Long providerId;
 }

@@ -15,8 +15,12 @@ CREATE TABLE IF NOT EXISTS users (
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS services (
     id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    price DOUBLE PRECISION NOT NULL
+    name VARCHAR(255) NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    description VARCHAR(500),
+    provider_id BIGINT,
+    CONSTRAINT fk_services_provider
+        FOREIGN KEY (provider_id) REFERENCES users(id)
 );
 
 -- -----------------------------------------------------------------------------
@@ -39,3 +43,4 @@ CREATE TABLE IF NOT EXISTS bookings (
 CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_service_id ON bookings(service_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
+CREATE INDEX IF NOT EXISTS idx_services_provider_id ON services(provider_id);

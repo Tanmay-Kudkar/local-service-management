@@ -156,7 +156,7 @@ class _BookingScreenState extends State<BookingScreen> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: selectedMeta.color.withOpacity(0.15),
+                                  color: selectedMeta.color.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
@@ -187,7 +187,7 @@ class _BookingScreenState extends State<BookingScreen> {
                                       vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: selectedMeta.color.withOpacity(0.12),
+                                      color: selectedMeta.color.withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
@@ -209,7 +209,7 @@ class _BookingScreenState extends State<BookingScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: AppTheme.accent.withOpacity(0.12),
+                            color: AppTheme.accent.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -274,7 +274,7 @@ class _BookingScreenState extends State<BookingScreen> {
                           Icon(
                             Icons.history_toggle_off_rounded,
                             size: 40,
-                            color: AppTheme.textSecondary.withOpacity(0.7),
+                            color: AppTheme.textSecondary.withValues(alpha: 0.7),
                           ),
                           const SizedBox(height: 10),
                           Text(
@@ -318,7 +318,7 @@ class _BookingScreenState extends State<BookingScreen> {
                         child: Card(
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: meta.color.withOpacity(0.14),
+                              backgroundColor: meta.color.withValues(alpha: 0.14),
                               foregroundColor: meta.color,
                               child: Icon(meta.icon),
                             ),
@@ -336,7 +336,7 @@ class _BookingScreenState extends State<BookingScreen> {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: meta.color.withOpacity(0.12),
+                                    color: meta.color.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: Text(

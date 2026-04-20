@@ -10,8 +10,13 @@ import 'booking_screen.dart';
 
 class ServiceListScreen extends StatefulWidget {
   final int userId;
+  final String userName;
 
-  const ServiceListScreen({super.key, required this.userId});
+  const ServiceListScreen({
+    super.key,
+    required this.userId,
+    this.userName = '',
+  });
 
   @override
   State<ServiceListScreen> createState() => _ServiceListScreenState();
@@ -21,11 +26,14 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   bool _isLoading = true;
   List<ServiceModel> _services = [];
   bool _showContent = false;
+  String _displayName = '';
 
   @override
   void initState() {
     super.initState();
+    _displayName = widget.userName.trim();
     _loadServices();
+    _loadUserProfile();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
@@ -59,9 +67,23 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
     }
   }
 
+  Future<void> _loadUserProfile() async {
+    try {
+      final profile = await ApiService.getUserProfile(widget.userId);
+      if (!mounted) return;
+      setState(() {
+        _displayName = profile.name;
+      });
+    } catch (_) {
+      // Keep existing display name if profile fetch fails.
+    }
+  }
+
   Future<void> _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('userId');
+    await prefs.remove('userName');
+    await prefs.remove('userRole');
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
@@ -85,22 +107,34 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                   pinned: true,
                   floating: false,
                   actions: [
-                    IconButton(
-                      tooltip: 'Logout',
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout_rounded),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: Material(
+                        color: Colors.white.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(12),
+                        child: IconButton(
+                          tooltip: 'Logout',
+                          onPressed: _logout,
+                          icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 6),
                   ],
                   flexibleSpace: FlexibleSpaceBar(
                     titlePadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                    title: const Text('Available Services'),
+                    title: const Text(
+                      'Available Services',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     background: Container(
                       margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppTheme.brand.withOpacity(0.96),
+                            AppTheme.brand.withValues(alpha: 0.96),
                             const Color(0xFF184B46),
                           ],
                           begin: Alignment.topLeft,
@@ -116,7 +150,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'Hello, User ${widget.userId}',
+                              'Hello, ${_displayName.isEmpty ? 'User' : _displayName}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
@@ -165,7 +199,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                       itemCount: _services.length,
                       itemBuilder: (context, index) {
                         final service = _services[index];
-                        final delay = (index * 80).clamp(0, 400) as int;
+                        final delay = ((index * 80).clamp(0, 400)).toInt();
 
                         return TweenAnimationBuilder<double>(
                           tween: Tween(begin: 0, end: _showContent ? 1 : 0),
@@ -219,6 +253,9 @@ class _ServiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = _serviceMeta(service.name);
+    final displayHint = (service.description != null && service.description!.trim().isNotEmpty)
+        ? service.description!
+        : meta.hint;
 
     return Card(
       child: InkWell(
@@ -234,7 +271,7 @@ class _ServiceCard extends StatelessWidget {
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: meta.color.withOpacity(0.16),
+                    color: meta.color.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(meta.icon, color: meta.color),
@@ -260,7 +297,7 @@ class _ServiceCard extends StatelessWidget {
                             vertical: 5,
                           ),
                           decoration: BoxDecoration(
-                            color: meta.color.withOpacity(0.12),
+                            color: meta.color.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -280,7 +317,7 @@ class _ServiceCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      meta.hint,
+                      displayHint,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
@@ -366,7 +403,7 @@ class _EmptyState extends StatelessWidget {
                   width: 68,
                   height: 68,
                   decoration: BoxDecoration(
-                    color: AppTheme.brand.withOpacity(0.12),
+                    color: AppTheme.brand.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
