@@ -36,6 +36,8 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   bool _showWarmupHint = false;
   List<ServiceModel> _services = [];
   bool _showContent = false;
+  Timer? _warmupHintTimer;
+  bool _isEditProfileDialogOpen = false;
   String _displayName = '';
   UserProfile? _userProfile;
   int _loadRequestVersion = 0;
@@ -73,6 +75,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
 
   @override
   void dispose() {
+    _warmupHintTimer?.cancel();
     _minPriceController.removeListener(_onFilterTextChanged);
     _maxPriceController.removeListener(_onFilterTextChanged);
     _minRatingController.removeListener(_onFilterTextChanged);
@@ -97,7 +100,8 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       _showWarmupHint = false;
     });
 
-    Timer(const Duration(milliseconds: 1300), () {
+    _warmupHintTimer?.cancel();
+    _warmupHintTimer = Timer(const Duration(milliseconds: 1300), () {
       if (!mounted) return;
       if (_isLoading && requestVersion == _loadRequestVersion) {
         setState(() {
@@ -366,6 +370,11 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   }
 
   Future<void> _openEditProfileDialog() async {
+    if (_isEditProfileDialogOpen) {
+      return;
+    }
+
+    _isEditProfileDialogOpen = true;
     final profile = _userProfile;
     final nameController = TextEditingController(
       text: profile?.name ?? _displayName,
@@ -388,186 +397,194 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
 
     bool isSaving = false;
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit Profile'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameController,
-                      enabled: !isSaving,
-                      decoration: const InputDecoration(
-                        labelText: 'Name *',
-                        prefixIcon: Icon(Icons.person_outline_rounded),
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Edit Profile'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        enabled: !isSaving,
+                        decoration: const InputDecoration(
+                          labelText: 'Name *',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: contactController,
-                      enabled: !isSaving,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Contact Number',
-                        prefixIcon: Icon(Icons.phone_outlined),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: contactController,
+                        enabled: !isSaving,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Contact Number',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: addressController,
-                      enabled: !isSaving,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Address',
-                        prefixIcon: Icon(Icons.home_outlined),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: addressController,
+                        enabled: !isSaving,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Address',
+                          prefixIcon: Icon(Icons.home_outlined),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: cityController,
-                      enabled: !isSaving,
-                      decoration: const InputDecoration(
-                        labelText: 'City',
-                        prefixIcon: Icon(Icons.location_city_outlined),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: cityController,
+                        enabled: !isSaving,
+                        decoration: const InputDecoration(
+                          labelText: 'City',
+                          prefixIcon: Icon(Icons.location_city_outlined),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: stateController,
-                      enabled: !isSaving,
-                      decoration: const InputDecoration(
-                        labelText: 'State',
-                        prefixIcon: Icon(Icons.map_outlined),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: stateController,
+                        enabled: !isSaving,
+                        decoration: const InputDecoration(
+                          labelText: 'State',
+                          prefixIcon: Icon(Icons.map_outlined),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: pincodeController,
-                      enabled: !isSaving,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Pincode',
-                        prefixIcon: Icon(Icons.pin_drop_outlined),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: pincodeController,
+                        enabled: !isSaving,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Pincode',
+                          prefixIcon: Icon(Icons.pin_drop_outlined),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSaving
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: isSaving
-                      ? null
-                      : () async {
-                          final name = nameController.text.trim();
-                          final contact = contactController.text.trim();
-                          final address = addressController.text.trim();
-                          final pincode = pincodeController.text.trim();
+                actions: [
+                  TextButton(
+                    onPressed: isSaving
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    onPressed: isSaving
+                        ? null
+                        : () async {
+                            final navigator = Navigator.of(dialogContext);
+                            final name = nameController.text.trim();
+                            final contact = contactController.text.trim();
+                            final address = addressController.text.trim();
+                            final pincode = pincodeController.text.trim();
 
-                          if (name.isEmpty) {
-                            _showMessage('Name is required.');
-                            return;
-                          }
-
-                          if (contact.isNotEmpty &&
-                              (contact.length != 10 ||
-                                  !RegExp(r'^[6-9][0-9]{9}').hasMatch(contact))) {
-                            _showMessage('Enter a valid 10-digit Indian mobile number.');
-                            return;
-                          }
-
-                          if (address.isNotEmpty && address.length < 10) {
-                            _showMessage('Address must be at least 10 characters.');
-                            return;
-                          }
-
-                          if (pincode.isNotEmpty &&
-                              (pincode.length != 6 ||
-                                  !RegExp(r'^[1-9][0-9]{5}').hasMatch(pincode))) {
-                            _showMessage('Enter a valid 6-digit pincode.');
-                            return;
-                          }
-
-                          setDialogState(() {
-                            isSaving = true;
-                          });
-
-                          try {
-                            final updatedProfile = await ApiService.updateUserProfile(
-                              userId: widget.userId,
-                              name: name,
-                              contactNumber: contact,
-                              address: address,
-                              city: cityController.text.trim(),
-                              state: stateController.text.trim(),
-                              pincode: pincode,
-                            );
-
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setString('userName', updatedProfile.name);
-
-                            if (!mounted) {
+                            if (name.isEmpty) {
+                              _showMessage('Name is required.');
                               return;
                             }
 
-                            setState(() {
-                              _displayName = updatedProfile.name;
-                              _userProfile = updatedProfile;
+                            if (contact.isNotEmpty &&
+                                (contact.length != 10 ||
+                                    !RegExp(r'^[6-9][0-9]{9}').hasMatch(contact))) {
+                              _showMessage('Enter a valid 10-digit Indian mobile number.');
+                              return;
+                            }
+
+                            if (address.isNotEmpty && address.length < 10) {
+                              _showMessage('Address must be at least 10 characters.');
+                              return;
+                            }
+
+                            if (pincode.isNotEmpty &&
+                                (pincode.length != 6 ||
+                                    !RegExp(r'^[1-9][0-9]{5}').hasMatch(pincode))) {
+                              _showMessage('Enter a valid 6-digit pincode.');
+                              return;
+                            }
+
+                            setDialogState(() {
+                              isSaving = true;
                             });
 
-                            if (dialogContext.mounted) {
-                              Navigator.of(dialogContext).pop();
-                            }
+                            try {
+                              final updatedProfile = await ApiService.updateUserProfile(
+                                userId: widget.userId,
+                                name: name,
+                                contactNumber: contact,
+                                address: address,
+                                city: cityController.text.trim(),
+                                state: stateController.text.trim(),
+                                pincode: pincode,
+                              );
 
-                            _showMessage('Profile updated successfully.');
-                          } catch (e) {
-                            if (dialogContext.mounted) {
-                              setDialogState(() {
-                                isSaving = false;
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setString('userName', updatedProfile.name);
+
+                              if (!mounted) {
+                                return;
+                              }
+
+                              setState(() {
+                                _displayName = updatedProfile.name;
+                                _userProfile = updatedProfile;
                               });
-                            }
-                            _showMessage(
-                              e.toString().replaceFirst('Exception: ', ''),
-                            );
-                          }
-                        },
-                  child: isSaving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
 
-    nameController.dispose();
-    contactController.dispose();
-    addressController.dispose();
-    cityController.dispose();
-    stateController.dispose();
-    pincodeController.dispose();
+                              if (navigator.mounted) {
+                                navigator.pop();
+                              }
+
+                              _showMessage('Profile updated successfully.');
+                            } catch (e) {
+                              if (navigator.mounted) {
+                                setDialogState(() {
+                                  isSaving = false;
+                                });
+                              }
+                              _showMessage(
+                                e.toString().replaceFirst('Exception: ', ''),
+                              );
+                            }
+                          },
+                    child: isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Save'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _isEditProfileDialogOpen = false;
+      nameController.dispose();
+      contactController.dispose();
+      addressController.dispose();
+      cityController.dispose();
+      stateController.dispose();
+      pincodeController.dispose();
+    }
   }
 
   void _showMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
