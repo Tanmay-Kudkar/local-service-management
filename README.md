@@ -657,27 +657,82 @@ Expected response:
 
 ## 12. Repository Layout
 
+This section gives a practical map of the repository so contributors can quickly locate where to implement features, fix bugs, and run validations.
+
+### 12.1 Visual Directory Map
+
 ```text
 Local-Service-Management/
-|- README.md
-|- backend/
+|- README.md                                      # Root documentation
+|- backend/                                       # Spring Boot backend service
 |  |- src/main/java/com/lsm/backend/
-|  |  |- controller/
-|  |  |- service/
-|  |  |- repository/
-|  |  |- dto/
-|  |  |- entity/
-|  |- src/main/resources/application.properties
-|  |- postman/local-service-management.postman_collection.json
-|  |- Dockerfile
+|  |  |- controller/                              # REST API endpoint definitions
+|  |  |- service/                                 # Business logic and workflow rules
+|  |  |- repository/                              # Spring Data JPA data-access interfaces
+|  |  |- dto/                                     # Request/response payload models
+|  |  |- entity/                                  # Persistent entities and enums
+|  |  |- exception/                               # Custom exceptions and global handler
+|  |- src/main/resources/
+|  |  |- application.properties                   # Runtime config and env placeholders
+|  |- src/test/java/                              # Backend test sources
+|  |- postman/
+|  |  |- local-service-management.postman_collection.json
+|  |- Dockerfile                                  # Container image build spec
+|  |- pom.xml                                     # Maven dependencies and build config
+|  |- mvnw / mvnw.cmd                             # Maven wrappers
+|  |- target/                                     # Generated build artifacts (do not edit)
 |- Database/
-|  |- schema.sql
-|- mobile/
-|  |- lib/screens/
-|  |- lib/services/api_service.dart
-|  |- lib/models/
-|  |- pubspec.yaml
+|  |- schema.sql                                  # SQL schema, constraints, and indexes
+|- mobile/                                        # Flutter application
+|  |- lib/
+|  |  |- main.dart                                # App entrypoint
+|  |  |- screens/                                 # Screen-level UI and flows
+|  |  |- services/                                # API client and network integration
+|  |  |- models/                                  # App models and JSON mapping
+|  |  |- widgets/                                 # Reusable UI widgets
+|  |  |- theme/                                   # Design system/theme config
+|  |  |- utils/                                   # Validation and utility helpers
+|  |- assets/                                     # App images/icons
+|  |- test/                                       # Flutter test files
+|  |- android/ ios/ web/ windows/ macos/ linux/  # Platform runners
+|  |- pubspec.yaml                                # Flutter dependencies and assets
+|  |- build/                                      # Generated Flutter artifacts (do not edit)
+|- Packages/
+|  |- Android/ Desktop/ iOS/ Linux/               # Packaging/output support folders
 ```
+
+### 12.2 Folder Purpose Matrix
+
+| Folder / File | Primary Purpose | Typical Changes You Make Here |
+|---|---|---|
+| `backend/src/main/java/com/lsm/backend/controller/` | API route layer | Add or modify endpoints, query/body parameters, response wiring |
+| `backend/src/main/java/com/lsm/backend/service/` | Core business rules | Booking logic, validations, role checks, availability rules |
+| `backend/src/main/java/com/lsm/backend/repository/` | Data access contracts | Add custom query methods and filters |
+| `backend/src/main/java/com/lsm/backend/dto/` | API contracts | Add request/response fields used by mobile/client |
+| `backend/src/main/java/com/lsm/backend/entity/` | Database entity model | Add columns/mappings and domain enums |
+| `backend/src/main/resources/application.properties` | Environment configuration | Port, DB, CORS, logging and runtime config |
+| `backend/postman/` | Manual API verification | Add/update request collections for QA and demos |
+| `Database/schema.sql` | SQL DDL source of truth | Add constraints, indexes, and table updates |
+| `mobile/lib/screens/` | App screen flows | UI changes, interaction flow, state handling |
+| `mobile/lib/services/` | Backend integration layer | Add API methods, request/response handling, error parsing |
+| `mobile/lib/models/` | Typed model mapping | JSON serialization/deserialization contract updates |
+| `mobile/lib/widgets/` | Shared reusable UI | Common cards, banners, loaders, dialogs |
+| `mobile/lib/theme/` | Styling system | Colors, typography, spacing, input/button themes |
+| `mobile/lib/utils/` | Helper utilities | Validation helpers and data utilities |
+| `mobile/assets/` | Static resources | App icons, images, brand assets |
+| `mobile/test/` | Flutter tests | Widget/unit tests |
+| `backend/target/`, `mobile/build/` | Build outputs | Generated during builds; not for manual edits |
+
+### 12.3 Quick Navigation by Task
+
+| If you want to... | Start here | Then also check |
+|---|---|---|
+| Add a new backend API | `backend/.../controller/` | `dto/`, `service/`, `repository/`, Postman collection |
+| Add a new validation rule | `backend/.../service/` | `schema.sql` constraints, mobile form validation |
+| Add a new database field | `backend/.../entity/` | `Database/schema.sql`, DTOs, mobile models |
+| Add a mobile feature screen | `mobile/lib/screens/` | `services/`, `models/`, `widgets/`, `theme/` |
+| Change backend endpoint payload | `backend/.../dto/` | `mobile/lib/models/`, `mobile/lib/services/api_service.dart` |
+| Diagnose API integration bug | `mobile/lib/services/api_service.dart` | matching backend controller/service and DTO |
 
 ## 13. Known Gaps and Production Hardening
 
