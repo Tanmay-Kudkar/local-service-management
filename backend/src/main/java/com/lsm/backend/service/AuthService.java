@@ -1,5 +1,7 @@
 package com.lsm.backend.service;
 
+import java.util.regex.Pattern;
+
 import org.springframework.stereotype.Service;
 
 import com.lsm.backend.dto.AuthResponse;
@@ -12,6 +14,9 @@ import com.lsm.backend.repository.UserRepository;
 
 @Service
 public class AuthService {
+
+    private static final Pattern INDIAN_MOBILE_PATTERN = Pattern.compile("^[6-9]\\d{9}$");
+    private static final Pattern INDIAN_PINCODE_PATTERN = Pattern.compile("^[1-9]\\d{5}$");
 
     private final UserRepository userRepository;
 
@@ -90,14 +95,30 @@ public class AuthService {
     }
 
     private void validateProviderRegistrationData(RegisterRequest request) {
-        if (isBlank(request.getContactNumber())
-                || isBlank(request.getAddress())
-                || isBlank(request.getCity())) {
+        String contactNumber = normalizeNullableText(request.getContactNumber());
+        String address = normalizeNullableText(request.getAddress());
+        String city = normalizeNullableText(request.getCity());
+        String pincode = normalizeNullableText(request.getPincode());
+
+        if (contactNumber == null || address == null || city == null) {
             throw new BadRequestException("Provider registration requires contact number, address and city");
         }
 
-        if (request.getExperienceYears() != null && request.getExperienceYears() < 0) {
-            throw new BadRequestException("experienceYears cannot be negative");
+        if (!INDIAN_MOBILE_PATTERN.matcher(contactNumber).matches()) {
+            throw new BadRequestException("contactNumber must be a valid 10-digit Indian mobile number");
+        }
+
+        if (address.length() < 10) {
+            throw new BadRequestException("address must be at least 10 characters");
+        }
+
+        if (pincode != null && !INDIAN_PINCODE_PATTERN.matcher(pincode).matches()) {
+            throw new BadRequestException("pincode must be a valid 6-digit Indian pincode");
+        }
+
+        Integer experienceYears = request.getExperienceYears();
+        if (experienceYears != null && (experienceYears < 0 || experienceYears > 60)) {
+            throw new BadRequestException("experienceYears must be between 0 and 60");
         }
     }
 

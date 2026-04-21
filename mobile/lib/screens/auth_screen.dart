@@ -1,11 +1,11 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/india_location_data.dart';
 import '../widgets/app_background.dart';
 import '../widgets/server_selector_sheet.dart';
 import 'provider_dashboard_screen.dart';
@@ -32,6 +32,7 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
   final _experienceController = TextEditingController();
   final _skillsController = TextEditingController();
   final _bioController = TextEditingController();
+  final _providerRegistrationFormKey = GlobalKey<FormState>();
   final _imagePicker = ImagePicker();
   final ScrollController _scrollController =
       ScrollController(keepScrollOffset: false);
@@ -41,6 +42,8 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
   _PortalType _portalType = _PortalType.customer;
   Uint8List? _selectedProfileImageBytes;
   String? _selectedProfileImageName;
+  String? _selectedState;
+  String? _selectedCity;
   ApiServerMode _serverMode = ApiServerMode.deployed;
   String? _activeServerUrl;
 
@@ -106,19 +109,54 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
       return;
     }
 
+    if (isProviderRegistration) {
+      final isProviderFormValid =
+          _providerRegistrationFormKey.currentState?.validate() ?? false;
+      if (!isProviderFormValid) {
+        _showMessage('Please fix the highlighted provider fields.');
+        return;
+      }
+    }
+
+    final normalizedContact = isProviderRegistration
+        ? IndiaLocationData.digitsOnly(_contactController.text)
+        : null;
+    final normalizedAddress =
+        isProviderRegistration ? _addressController.text.trim() : null;
+    final normalizedCity =
+        isProviderRegistration ? (_selectedCity ?? '').trim() : null;
+    final normalizedState =
+        isProviderRegistration ? (_selectedState ?? '').trim() : null;
+    final normalizedPincode =
+        isProviderRegistration ? _pincodeController.text.trim() : null;
+
     if (isProviderRegistration &&
-        (_contactController.text.trim().isEmpty ||
-            _addressController.text.trim().isEmpty ||
-            _cityController.text.trim().isEmpty)) {
-      _showMessage('Provider registration needs contact number, address and city.');
+        (normalizedContact == null ||
+            normalizedAddress == null ||
+            normalizedCity == null ||
+            normalizedState == null ||
+            normalizedPincode == null ||
+            normalizedContact.isEmpty ||
+            normalizedAddress.isEmpty ||
+            normalizedCity.isEmpty ||
+            normalizedState.isEmpty ||
+            normalizedPincode.isEmpty)) {
+      _showMessage('Provider registration needs complete location and contact details.');
       return;
+    }
+
+    if (isProviderRegistration) {
+      _contactController.text = normalizedContact!;
+      _stateController.text = normalizedState!;
+      _cityController.text = normalizedCity!;
+      _pincodeController.text = normalizedPincode!;
     }
 
     int? experienceYears;
     if (_experienceController.text.trim().isNotEmpty) {
       experienceYears = int.tryParse(_experienceController.text.trim());
-      if (experienceYears == null || experienceYears < 0) {
-        _showMessage('Experience must be a valid non-negative number.');
+      if (experienceYears == null || experienceYears < 0 || experienceYears > 60) {
+        _showMessage('Experience must be between 0 and 60 years.');
         return;
       }
     }
@@ -139,15 +177,15 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
               password: _passwordController.text.trim(),
               role: _selectedRole,
               contactNumber: isProviderRegistration
-                ? _contactController.text.trim()
+                ? normalizedContact
                 : null,
               address: isProviderRegistration
-                ? _addressController.text.trim()
+                ? normalizedAddress
                 : null,
-              city: isProviderRegistration ? _cityController.text.trim() : null,
-              state: isProviderRegistration ? _stateController.text.trim() : null,
+              city: isProviderRegistration ? normalizedCity : null,
+              state: isProviderRegistration ? normalizedState : null,
               pincode: isProviderRegistration
-                ? _pincodeController.text.trim()
+                ? normalizedPincode
                 : null,
               experienceYears: isProviderRegistration ? experienceYears : null,
               skills: isProviderRegistration
@@ -325,6 +363,266 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
     } catch (_) {
       _showMessage('Unable to pick image. Please check camera/media permissions.');
     }
+  }
+
+  List<String> get _availableStates => IndiaLocationData.states;
+
+  List<String> get _availableCities {
+    return IndiaLocationData.citiesForState(_selectedState);
+  }
+
+  void _onStateSelected(String? state) {
+    setState(() {
+      _selectedState = state;
+      _stateController.text = state ?? '';
+      _selectedCity = null;
+      _cityController.clear();
+    });
+  }
+
+  void _onCitySelected(String? city) {
+    setState(() {
+      _selectedCity = city;
+      _cityController.text = city ?? '';
+    });
+  }
+
+  Future<String?> _showSearchableOptionPicker({
+    required String title,
+    required List<String> options,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        String query = '';
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filtered = options
+                .where((item) => item.toLowerCase().contains(query.toLowerCase()))
+                .toList();
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.72,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                        child: TextField(
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: 'Search $title',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            suffixIcon: query.isEmpty
+                                ? null
+                                : IconButton(
+                                    onPressed: () {
+                                      setModalState(() {
+                                        query = '';
+                                      });
+                                    },
+                                    icon: const Icon(Icons.clear_rounded),
+                                  ),
+                          ),
+                          onChanged: (value) {
+                            setModalState(() {
+                              query = value.trim();
+                            });
+                          },
+                        ),
+                      ),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No results found',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) => const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = filtered[index];
+                                  return ListTile(
+                                    title: Text(item),
+                                    onTap: () => Navigator.pop(sheetContext, item),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _pickStateFromSearch() async {
+    if (_isLoading) {
+      return;
+    }
+
+    final selected = await _showSearchableOptionPicker(
+      title: 'state',
+      options: _availableStates,
+    );
+
+    if (!mounted || selected == null) {
+      return;
+    }
+
+    _onStateSelected(selected);
+    _providerRegistrationFormKey.currentState?.validate();
+  }
+
+  Future<void> _pickCityFromSearch() async {
+    if (_isLoading) {
+      return;
+    }
+
+    if (_selectedState == null) {
+      _showMessage('Please select a state first.');
+      return;
+    }
+
+    final selected = await _showSearchableOptionPicker(
+      title: 'city',
+      options: _availableCities,
+    );
+
+    if (!mounted || selected == null) {
+      return;
+    }
+
+    _onCitySelected(selected);
+    _providerRegistrationFormKey.currentState?.validate();
+  }
+
+  String? _validateProviderPhone(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return 'Contact number is required';
+    }
+
+    if (!IndiaLocationData.isValidIndianPhone(text)) {
+      return 'Enter a valid 10-digit Indian mobile number';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderAddress(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return 'Address is required';
+    }
+
+    if (text.length < 10) {
+      return 'Address should be at least 10 characters';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderState(String? value) {
+    final state = (value ?? '').trim();
+    if (state.isEmpty) {
+      return 'Please select a state';
+    }
+
+    if (!IndiaLocationData.stateExists(state)) {
+      return 'Please select a valid state';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderCity(String? value) {
+    final city = (value ?? '').trim();
+    if (city.isEmpty) {
+      return 'Please select a city';
+    }
+
+    final state = (_selectedState ?? '').trim();
+    if (state.isEmpty) {
+      return 'Select a state first';
+    }
+
+    if (!IndiaLocationData.cityBelongsToState(state: state, city: city)) {
+      return 'Please select a valid city for the selected state';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderPincode(String? value) {
+    final pincode = (value ?? '').trim();
+    if (pincode.isEmpty) {
+      return 'Pincode is required';
+    }
+
+    if (!IndiaLocationData.isValidIndianPincode(pincode)) {
+      return 'Enter a valid 6-digit pincode';
+    }
+
+    final state = (_selectedState ?? '').trim();
+    if (state.isNotEmpty &&
+        !IndiaLocationData.isPincodeCompatibleWithState(
+          state: state,
+          pincode: pincode,
+        )) {
+      return 'Pincode does not match the selected state';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderExperience(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    final years = int.tryParse(text);
+    if (years == null || years < 0 || years > 60) {
+      return 'Experience must be between 0 and 60 years';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderSkills(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    if (text.length < 2) {
+      return 'Enter at least one valid skill';
+    }
+
+    return null;
+  }
+
+  String? _validateProviderBio(String? value) {
+    final text = (value ?? '').trim();
+    if (text.length > 300) {
+      return 'Bio should be at most 300 characters';
+    }
+
+    return null;
   }
 
   String _headlineText() {
@@ -629,139 +927,218 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildProviderRegistrationFields() {
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        TextField(
-          controller: _contactController,
-          keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(
-            labelText: 'Contact Number *',
-            prefixIcon: Icon(Icons.phone_outlined),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _addressController,
-          decoration: const InputDecoration(
-            labelText: 'Address *',
-            prefixIcon: Icon(Icons.home_outlined),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _cityController,
-          decoration: const InputDecoration(
-            labelText: 'City *',
-            prefixIcon: Icon(Icons.location_city_outlined),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _stateController,
-                decoration: const InputDecoration(
-                  labelText: 'State',
-                  prefixIcon: Icon(Icons.map_outlined),
-                ),
-              ),
+    return Form(
+      key: _providerRegistrationFormKey,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFD4DDE2)),
+              color: const Color(0xFFF9FCFB),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: _pincodeController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Pincode',
-                  prefixIcon: Icon(Icons.pin_drop_outlined),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Primary Contact',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
-              ),
+                const SizedBox(height: 2),
+                Text(
+                  'This information is visible to customers while booking.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _contactController,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Contact Number *',
+                    prefixIcon: Icon(Icons.phone_outlined),
+                  ),
+                  validator: _validateProviderPhone,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _addressController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Address *',
+                    prefixIcon: Icon(Icons.home_outlined),
+                  ),
+                  validator: _validateProviderAddress,
+                ),
+              ],
             ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _experienceController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Experience (years)',
-            prefixIcon: Icon(Icons.work_history_outlined),
           ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _skillsController,
-          decoration: const InputDecoration(
-            labelText: 'Skills (comma separated)',
-            prefixIcon: Icon(Icons.handyman_outlined),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFD4DDE2)),
+              color: const Color(0xFFF9FCFB),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Service Area',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'City options depend on the selected state.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _stateController,
+                  readOnly: true,
+                  onTap: _pickStateFromSearch,
+                  decoration: const InputDecoration(
+                    labelText: 'State *',
+                    prefixIcon: Icon(Icons.map_outlined),
+                    suffixIcon: Icon(Icons.search_rounded),
+                  ),
+                  validator: _validateProviderState,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _cityController,
+                  readOnly: true,
+                  onTap: _selectedState == null ? null : _pickCityFromSearch,
+                  decoration: InputDecoration(
+                    labelText: 'City *',
+                    prefixIcon: const Icon(Icons.location_city_outlined),
+                    suffixIcon: const Icon(Icons.search_rounded),
+                    hintText: _selectedState == null
+                        ? 'Select state first'
+                        : null,
+                  ),
+                  validator: _validateProviderCity,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _pincodeController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Pincode *',
+                    prefixIcon: Icon(Icons.pin_drop_outlined),
+                  ),
+                  validator: _validateProviderPincode,
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFD4DDE2)),
-            color: const Color(0xFFF9FCFB),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Profile Image (direct upload)',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: const Color(0xFFE7F0EE),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: _selectedProfileImageBytes == null
-                        ? const Icon(Icons.person_outline_rounded)
-                        : Image.memory(
-                            _selectedProfileImageBytes!,
-                            fit: BoxFit.cover,
-                          ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _selectedProfileImageName ?? 'No image selected',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: _isLoading ? null : _pickProviderImage,
-                    icon: const Icon(Icons.upload_file_rounded),
-                    label: const Text('Choose'),
-                  ),
-                ],
-              ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _experienceController,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(2),
             ],
+            decoration: const InputDecoration(
+              labelText: 'Experience (years)',
+              prefixIcon: Icon(Icons.work_history_outlined),
+            ),
+            validator: _validateProviderExperience,
           ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _bioController,
-          maxLines: 2,
-          decoration: const InputDecoration(
-            labelText: 'Professional Bio',
-            prefixIcon: Icon(Icons.notes_outlined),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _skillsController,
+            decoration: const InputDecoration(
+              labelText: 'Skills (comma separated)',
+              prefixIcon: Icon(Icons.handyman_outlined),
+            ),
+            validator: _validateProviderSkills,
           ),
-        ),
-        const SizedBox(height: 4),
-      ],
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFD4DDE2)),
+              color: const Color(0xFFF9FCFB),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Profile Image (direct upload)',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: const Color(0xFFE7F0EE),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: _selectedProfileImageBytes == null
+                          ? const Icon(Icons.person_outline_rounded)
+                          : Image.memory(
+                              _selectedProfileImageBytes!,
+                              fit: BoxFit.cover,
+                            ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _selectedProfileImageName ?? 'No image selected',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _pickProviderImage,
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: const Text('Choose'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _bioController,
+            maxLines: 3,
+            maxLength: 300,
+            decoration: const InputDecoration(
+              labelText: 'Professional Bio',
+              prefixIcon: Icon(Icons.notes_outlined),
+            ),
+            validator: _validateProviderBio,
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
     );
   }
 }

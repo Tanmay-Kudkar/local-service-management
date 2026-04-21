@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.lsm.backend.dto.BookingStatusUpdateRequest;
@@ -32,8 +33,10 @@ public class BookingController {
     }
 
     @GetMapping("/{userId}")
-    public ResponseEntity<List<BookingTrackingResponse>> getBookingsByUserId(@PathVariable Long userId) {
-        return ResponseEntity.ok(bookingService.getBookingsByUserId(userId));
+    public ResponseEntity<List<BookingTrackingResponse>> getBookingsByUserId(
+            @PathVariable Long userId,
+            @RequestParam(required = false) Long providerId) {
+        return ResponseEntity.ok(bookingService.getBookingsByUserId(userId, providerId));
     }
 
     @GetMapping("/provider/{providerId}")

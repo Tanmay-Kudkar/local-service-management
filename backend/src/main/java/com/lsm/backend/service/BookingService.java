@@ -1,6 +1,7 @@
 package com.lsm.backend.service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +26,13 @@ import com.lsm.backend.repository.UserRepository;
 
 @Service
 public class BookingService {
+
+    private static final List<BookingStatus> ACTIVE_BOOKING_STATUSES = List.of(
+            BookingStatus.PENDING,
+            BookingStatus.CONFIRMED,
+            BookingStatus.IN_PROGRESS);
+
+    private static final long DUPLICATE_BOOKING_COOLDOWN_MINUTES = 5;
 
     private final BookingRepository bookingRepository;
     private final UserRepository userRepository;
@@ -62,6 +70,25 @@ public class BookingService {
         if (service.getProviderId() != null) {
             provider = userRepository.findById(service.getProviderId())
                     .orElse(null);
+
+            boolean hasActiveBookingSameDate = bookingRepository.existsByUserIdAndProviderIdAndDateAndStatusIn(
+                    request.getUserId(),
+                    service.getProviderId(),
+                    request.getDate(),
+                    ACTIVE_BOOKING_STATUSES);
+            if (hasActiveBookingSameDate) {
+                throw new BadRequestException(
+                        "You already have an active booking with this provider on the selected date");
+            }
+
+            LocalDateTime cooldownThreshold = LocalDateTime.now().minusMinutes(DUPLICATE_BOOKING_COOLDOWN_MINUTES);
+            boolean hasRecentDuplicate = bookingRepository.existsByUserIdAndProviderIdAndCreatedAtAfter(
+                    request.getUserId(),
+                    service.getProviderId(),
+                    cooldownThreshold);
+            if (hasRecentDuplicate) {
+                throw new BadRequestException("Please wait 5 minutes before booking the same provider again");
+            }
         }
 
         Booking booking = new Booking();
@@ -84,11 +111,17 @@ public class BookingService {
     }
 
     public List<BookingTrackingResponse> getBookingsByUserId(Long userId) {
+        return getBookingsByUserId(userId, null);
+    }
+
+    public List<BookingTrackingResponse> getBookingsByUserId(Long userId, Long providerId) {
         if (!userRepository.existsById(userId)) {
             throw new BadRequestException("User not found");
         }
 
-        List<Booking> bookings = bookingRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<Booking> bookings = providerId == null
+                ? bookingRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                : bookingRepository.findByUserIdAndProviderIdOrderByCreatedAtDesc(userId, providerId);
         return mapBookings(bookings);
     }
 
@@ -188,7 +221,8 @@ public class BookingService {
         Double liveLongitude = provider != null ? provider.getLiveLongitude() : booking.getProviderLongitude();
         String liveLocationUpdatedAt = provider != null && provider.getLiveLocationUpdatedAt() != null
                 ? provider.getLiveLocationUpdatedAt().toString()
-                : booking.getProviderLocationUpdatedAt() == null ? null : booking.getProviderLocationUpdatedAt().toString();
+                : booking.getProviderLocationUpdatedAt() == null ? null
+                        : booking.getProviderLocationUpdatedAt().toString();
 
         return new BookingTrackingResponse(
                 booking.getId(),
@@ -214,7 +248,8 @@ public class BookingService {
         try {
             return BookingStatus.valueOf(rawStatus.trim().toUpperCase());
         } catch (Exception ex) {
-            throw new BadRequestException("Invalid status. Allowed: PENDING, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED");
+            throw new BadRequestException(
+                    "Invalid status. Allowed: PENDING, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED");
         }
     }
 

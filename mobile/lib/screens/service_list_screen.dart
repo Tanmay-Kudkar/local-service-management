@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
@@ -8,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/service_model.dart';
+import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
@@ -15,6 +15,7 @@ import '../widgets/server_warmup_loading.dart';
 import '../widgets/server_selector_sheet.dart';
 import 'auth_screen.dart';
 import 'booking_screen.dart';
+import 'my_bookings_screen.dart';
 
 class ServiceListScreen extends StatefulWidget {
   final int userId;
@@ -36,6 +37,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   List<ServiceModel> _services = [];
   bool _showContent = false;
   String _displayName = '';
+  UserProfile? _userProfile;
   int _loadRequestVersion = 0;
   final _minPriceController = TextEditingController();
   final _maxPriceController = TextEditingController();
@@ -334,10 +336,235 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       if (!mounted) return;
       setState(() {
         _displayName = profile.name;
+        _userProfile = profile;
       });
     } catch (_) {
       // Keep existing display name if profile fetch fails.
     }
+  }
+
+  Future<void> _refreshHomeData() async {
+    await Future.wait([
+      _loadServices(),
+      _loadUserProfile(),
+    ]);
+  }
+
+  Future<void> _openMyBookings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MyBookingsScreen(userId: widget.userId),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    await _refreshHomeData();
+  }
+
+  Future<void> _openEditProfileDialog() async {
+    final profile = _userProfile;
+    final nameController = TextEditingController(
+      text: profile?.name ?? _displayName,
+    );
+    final contactController = TextEditingController(
+      text: profile?.contactNumber ?? '',
+    );
+    final addressController = TextEditingController(
+      text: profile?.address ?? '',
+    );
+    final cityController = TextEditingController(
+      text: profile?.city ?? '',
+    );
+    final stateController = TextEditingController(
+      text: profile?.state ?? '',
+    );
+    final pincodeController = TextEditingController(
+      text: profile?.pincode ?? '',
+    );
+
+    bool isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Edit Profile'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      enabled: !isSaving,
+                      decoration: const InputDecoration(
+                        labelText: 'Name *',
+                        prefixIcon: Icon(Icons.person_outline_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: contactController,
+                      enabled: !isSaving,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Contact Number',
+                        prefixIcon: Icon(Icons.phone_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: addressController,
+                      enabled: !isSaving,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Address',
+                        prefixIcon: Icon(Icons.home_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: cityController,
+                      enabled: !isSaving,
+                      decoration: const InputDecoration(
+                        labelText: 'City',
+                        prefixIcon: Icon(Icons.location_city_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: stateController,
+                      enabled: !isSaving,
+                      decoration: const InputDecoration(
+                        labelText: 'State',
+                        prefixIcon: Icon(Icons.map_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: pincodeController,
+                      enabled: !isSaving,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Pincode',
+                        prefixIcon: Icon(Icons.pin_drop_outlined),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final name = nameController.text.trim();
+                          final contact = contactController.text.trim();
+                          final address = addressController.text.trim();
+                          final pincode = pincodeController.text.trim();
+
+                          if (name.isEmpty) {
+                            _showMessage('Name is required.');
+                            return;
+                          }
+
+                          if (contact.isNotEmpty &&
+                              (contact.length != 10 ||
+                                  !RegExp(r'^[6-9][0-9]{9}').hasMatch(contact))) {
+                            _showMessage('Enter a valid 10-digit Indian mobile number.');
+                            return;
+                          }
+
+                          if (address.isNotEmpty && address.length < 10) {
+                            _showMessage('Address must be at least 10 characters.');
+                            return;
+                          }
+
+                          if (pincode.isNotEmpty &&
+                              (pincode.length != 6 ||
+                                  !RegExp(r'^[1-9][0-9]{5}').hasMatch(pincode))) {
+                            _showMessage('Enter a valid 6-digit pincode.');
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSaving = true;
+                          });
+
+                          try {
+                            final updatedProfile = await ApiService.updateUserProfile(
+                              userId: widget.userId,
+                              name: name,
+                              contactNumber: contact,
+                              address: address,
+                              city: cityController.text.trim(),
+                              state: stateController.text.trim(),
+                              pincode: pincode,
+                            );
+
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString('userName', updatedProfile.name);
+
+                            if (!mounted) {
+                              return;
+                            }
+
+                            setState(() {
+                              _displayName = updatedProfile.name;
+                              _userProfile = updatedProfile;
+                            });
+
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+
+                            _showMessage('Profile updated successfully.');
+                          } catch (e) {
+                            if (dialogContext.mounted) {
+                              setDialogState(() {
+                                isSaving = false;
+                              });
+                            }
+                            _showMessage(
+                              e.toString().replaceFirst('Exception: ', ''),
+                            );
+                          }
+                        },
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    contactController.dispose();
+    addressController.dispose();
+    cityController.dispose();
+    stateController.dispose();
+    pincodeController.dispose();
   }
 
   void _showMessage(String message) {
@@ -439,12 +666,12 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
         body: AppBackground(
           child: SafeArea(
             child: RefreshIndicator(
-              onRefresh: _loadServices,
+              onRefresh: _refreshHomeData,
               child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
                 SliverAppBar(
-                  expandedHeight: 300,
+                  toolbarHeight: 68,
                   pinned: true,
                   floating: false,
                   automaticallyImplyLeading: false,
@@ -459,6 +686,28 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                     ),
                   ),
                   actions: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 2, 8),
+                      child: Tooltip(
+                        message: 'My Bookings',
+                        child: IconButton(
+                          onPressed: _openMyBookings,
+                          icon: const Icon(Icons.receipt_long_rounded),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 2, 8),
+                      child: Tooltip(
+                        message: 'Edit Profile',
+                        child: IconButton(
+                          onPressed: _openEditProfileDialog,
+                          icon: const Icon(Icons.manage_accounts_outlined),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
                       child: Tooltip(
@@ -487,129 +736,183 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                       ),
                     ),
                   ],
-                  flexibleSpace: FlexibleSpaceBar(
-                    collapseMode: CollapseMode.pin,
-                    background: Container(
-                      margin: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                    child: Container(
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
+                        gradient: const LinearGradient(
                           colors: [
                             AppTheme.brand,
-                            const Color(0xFF165651),
-                            const Color(0xFF113F3B),
+                            Color(0xFF165651),
+                            Color(0xFF113F3B),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.18),
+                          color: Colors.white.withValues(alpha: 0.16),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF0A2F2B).withValues(alpha: 0.28),
-                            blurRadius: 24,
-                            offset: const Offset(0, 12),
+                            color: const Color(0xFF0A2F2B).withValues(alpha: 0.24),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
                           ),
                         ],
                       ),
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          final compact = constraints.maxHeight < 220;
+                          final compact = constraints.maxWidth < 360;
 
-                          return ListView(
-                            physics: const NeverScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(20, 74, 20, 20),
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.18),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: const Text(
-                                      'Trusted Local Services',
-                                      style: TextStyle(
-                                        color: Color(0xFFE8FAF6),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.2,
+                          return Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              compact ? 14 : 18,
+                              compact ? 14 : 18,
+                              compact ? 14 : 18,
+                              compact ? 14 : 16,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.18),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: const Text(
+                                        'Trusted Local Services',
+                                        style: TextStyle(
+                                          color: Color(0xFFE8FAF6),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.2,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const Spacer(),
-                                  if (!compact)
+                                    const Spacer(),
                                     const Icon(
                                       Icons.home_repair_service_rounded,
                                       color: Color(0xFFE8FAF6),
                                       size: 18,
                                     ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Hello, ${_displayName.isEmpty ? 'User' : _displayName}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: compact ? 17 : 20,
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Book trusted local experts in seconds.',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Color(0xFFE7F8F4),
-                                  fontSize: 13.5,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Available Services',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: compact ? 20 : 23,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _HeroPill(
-                                    icon: Icons.inventory_2_outlined,
-                                    text: _isLoading
-                                        ? 'Syncing listings'
-                                        : '${_services.length} ready now',
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Hello, ${_displayName.isEmpty ? 'User' : _displayName}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: compact ? 20 : 22,
                                   ),
-                                  _HeroPill(
-                                    icon: Icons.my_location_rounded,
-                                    text: _userLatitude == null
-                                        ? 'Location off'
-                                        : 'Location on',
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Book trusted local experts in seconds.',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Color(0xFFE7F8F4),
+                                    fontSize: 14,
                                   ),
-                                  if (!compact)
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Available Services',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: compact ? 28 : 31,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _HeroPill(
+                                      icon: Icons.inventory_2_outlined,
+                                      text: _isLoading
+                                          ? 'Syncing listings'
+                                          : '${_services.length} ready now',
+                                    ),
+                                    _HeroPill(
+                                      icon: Icons.my_location_rounded,
+                                      text: _userLatitude == null
+                                          ? 'Location off'
+                                          : 'Location on',
+                                    ),
                                     _HeroPill(
                                       icon: Icons.filter_alt_outlined,
                                       text: '${_activeFilterCount()} filters',
                                     ),
-                                ],
-                              ),
-                            ],
+                                  ],
+                                ),
+                              ],
+                            ),
                           );
                         },
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: AppTheme.brand.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.receipt_long_rounded,
+                                color: AppTheme.brand,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'My Bookings',
+                                    style: Theme.of(context).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'View all your bookings and submit reviews.',
+                                    style: Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: _openMyBookings,
+                              child: const Text('View All'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -937,8 +1240,8 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                             padding: const EdgeInsets.only(bottom: 12),
                             child: _ServiceCard(
                               service: service,
-                              onBook: () {
-                                Navigator.push(
+                              onBook: () async {
+                                await Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (_) => BookingScreen(
@@ -947,6 +1250,12 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                                     ),
                                   ),
                                 );
+
+                                if (!mounted) {
+                                  return;
+                                }
+
+                                await _refreshHomeData();
                               },
                               onProviderDetails: () {
                                 _showProviderDetails(service);
@@ -985,6 +1294,7 @@ class _ServiceCard extends StatelessWidget {
         ? service.description!
         : meta.hint;
     final providerName = service.providerName?.trim() ?? '';
+    final providerImage = _providerImageFromService(service);
 
     return Card(
       child: InkWell(
@@ -1102,10 +1412,17 @@ class _ServiceCard extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          const Icon(
-                            Icons.person_pin_circle_outlined,
-                            size: 16,
-                            color: AppTheme.brand,
+                          CircleAvatar(
+                            radius: 12,
+                            backgroundColor: const Color(0xFFD4ECE8),
+                            backgroundImage: providerImage,
+                            child: providerImage == null
+                                ? const Icon(
+                                    Icons.person_rounded,
+                                    size: 15,
+                                    color: AppTheme.brand,
+                                  )
+                                : null,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1290,6 +1607,26 @@ _ServiceMeta _serviceMeta(String serviceName) {
   );
 }
 
+ImageProvider<Object>? _providerImageFromService(ServiceModel service) {
+  final providerImageBase64 = service.providerProfileImageBase64?.trim() ?? '';
+
+  if (providerImageBase64.isNotEmpty) {
+    try {
+      final providerImageBytes = base64Decode(providerImageBase64);
+      return MemoryImage(providerImageBytes);
+    } catch (_) {
+      // Fall back to URL/avatar icon when image decoding fails.
+    }
+  }
+
+  final imageUrl = service.providerProfileImageUrl?.trim() ?? '';
+  if (imageUrl.isNotEmpty) {
+    return NetworkImage(imageUrl);
+  }
+
+  return null;
+}
+
 class _ProviderDetailsSheet extends StatelessWidget {
   final ServiceModel service;
 
@@ -1334,24 +1671,7 @@ class _ProviderDetailsSheet extends StatelessWidget {
     final providerContact = service.providerContactNumber?.trim() ?? '';
     final providerSkills = service.providerSkills?.trim() ?? '';
     final providerBio = service.providerBio?.trim() ?? '';
-    final providerImageBase64 = service.providerProfileImageBase64?.trim() ?? '';
-
-    Uint8List? providerImageBytes;
-    if (providerImageBase64.isNotEmpty) {
-      try {
-        providerImageBytes = base64Decode(providerImageBase64);
-      } catch (_) {
-        providerImageBytes = null;
-      }
-    }
-
-    ImageProvider<Object>? providerImage;
-    if (providerImageBytes != null) {
-      providerImage = MemoryImage(providerImageBytes);
-    } else if (service.providerProfileImageUrl != null &&
-        service.providerProfileImageUrl!.trim().isNotEmpty) {
-      providerImage = NetworkImage(service.providerProfileImageUrl!);
-    }
+    final providerImage = _providerImageFromService(service);
 
     final locationParts = [
       if (providerCity.isNotEmpty) providerCity,

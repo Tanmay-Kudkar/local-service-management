@@ -25,7 +25,13 @@ CREATE TABLE IF NOT EXISTS users (
     live_latitude DOUBLE PRECISION,
     live_longitude DOUBLE PRECISION,
     live_location_updated_at TIMESTAMP,
-    CONSTRAINT chk_users_role CHECK (role IN ('USER', 'PROVIDER'))
+    CONSTRAINT chk_users_role CHECK (role IN ('USER', 'PROVIDER')),
+    CONSTRAINT chk_users_contact_number
+        CHECK (contact_number IS NULL OR contact_number ~ '^[6-9][0-9]{9}$'),
+    CONSTRAINT chk_users_pincode
+        CHECK (pincode IS NULL OR pincode ~ '^[1-9][0-9]{5}$'),
+    CONSTRAINT chk_users_experience_years
+        CHECK (experience_years IS NULL OR (experience_years >= 0 AND experience_years <= 60))
 );
 
 -- -----------------------------------------------------------------------------
@@ -50,7 +56,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     service_id BIGINT NOT NULL,
     provider_id BIGINT,
     date DATE NOT NULL,
-    status VARCHAR(30),
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     tracking_note VARCHAR(255),
     live_location_sharing_enabled BOOLEAN DEFAULT FALSE,
     provider_latitude DOUBLE PRECISION,

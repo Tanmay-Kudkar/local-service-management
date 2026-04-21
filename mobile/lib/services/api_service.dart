@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auth_response.dart';
@@ -296,6 +298,37 @@ class ApiService {
     throw Exception('Failed to load user profile');
   }
 
+  static Future<UserProfile> updateUserProfile({
+    required int userId,
+    required String name,
+    String? contactNumber,
+    String? address,
+    String? city,
+    String? state,
+    String? pincode,
+  }) async {
+    final payload = <String, dynamic>{
+      'name': name,
+    };
+
+    payload['contactNumber'] = contactNumber?.trim();
+    payload['address'] = address?.trim();
+    payload['city'] = city?.trim();
+    payload['state'] = state?.trim();
+    payload['pincode'] = pincode?.trim();
+
+    final response = await _put(
+      Uri.parse('$baseUrl/users/$userId/profile'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode == 200) {
+      return UserProfile.fromJson(jsonDecode(response.body));
+    }
+    throw Exception(_readError(response.body));
+  }
+
   static Future<UserProfile> updateProviderProfile({
     required int userId,
     required String contactNumber,
@@ -366,6 +399,19 @@ class ApiService {
     required Uint8List fileBytes,
     required String fileName,
   }) async {
+    final mimeType = lookupMimeType(
+      fileName,
+      headerBytes: fileBytes.take(12).toList(),
+    );
+
+    MediaType? mediaType;
+    if (mimeType != null) {
+      final segments = mimeType.split('/');
+      if (segments.length == 2) {
+        mediaType = MediaType(segments[0], segments[1]);
+      }
+    }
+
     final endpoint = Uri.parse('$baseUrl/users/$userId/profile-image');
     final response = await _sendMultipart(
       endpoint,
@@ -376,6 +422,7 @@ class ApiService {
             'file',
             fileBytes,
             filename: fileName,
+            contentType: mediaType,
           ),
         );
         return request;
@@ -423,8 +470,19 @@ class ApiService {
     throw Exception(_readError(response.body));
   }
 
-  static Future<List<BookingModel>> getBookingsByUserId(int userId) async {
-    final response = await _get(Uri.parse('$baseUrl/bookings/$userId'));
+  static Future<List<BookingModel>> getBookingsByUserId(
+    int userId, {
+    int? providerId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/bookings/$userId').replace(
+      queryParameters: providerId == null
+          ? null
+          : {
+              'providerId': providerId.toString(),
+            },
+    );
+
+    final response = await _get(uri);
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as List<dynamic>;

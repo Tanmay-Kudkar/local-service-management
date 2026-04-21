@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -15,6 +15,7 @@ import '../models/service_model.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/india_location_data.dart';
 import '../widgets/app_background.dart';
 import '../widgets/server_selector_sheet.dart';
 import '../widgets/server_warmup_loading.dart';
@@ -106,12 +107,14 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
   final _experienceController = TextEditingController();
   final _skillsController = TextEditingController();
   final _bioController = TextEditingController();
+  final _providerProfileFormKey = GlobalKey<FormState>();
   final _imagePicker = ImagePicker();
 
   bool _isLoading = true;
   bool _showWarmupHint = false;
   bool _isSaving = false;
   bool _isProfileSaving = false;
+  bool _showProviderProfileForm = false;
   bool _isLocationSyncing = false;
   bool _liveShareEnabled = false;
   int? _editingServiceId;
@@ -133,6 +136,8 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
   final Map<int, TextEditingController> _reviewReplyControllers = {};
   Uint8List? _selectedProfileImageBytes;
   String? _selectedProfileImageName;
+  String? _selectedState;
+  String? _selectedCity;
   bool _profileImageDirty = false;
   String? _providerLiveLocationLabel;
   ApiServerMode _serverMode = ApiServerMode.deployed;
@@ -318,8 +323,10 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
   void _bindProviderProfileFields(UserProfile profile) {
     _contactController.text = profile.contactNumber ?? '';
     _addressController.text = profile.address ?? '';
-    _cityController.text = profile.city ?? '';
-    _stateController.text = profile.state ?? '';
+    _hydrateLocationSelection(
+      state: profile.state,
+      city: profile.city,
+    );
     _pincodeController.text = profile.pincode ?? '';
     _experienceController.text = profile.experienceYears?.toString() ?? '';
     _skillsController.text = profile.skills ?? '';
@@ -340,6 +347,344 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         _selectedProfileImageName = null;
       }
     }
+  }
+
+  List<String> get _availableStates => IndiaLocationData.states;
+
+  List<String> get _availableCities {
+    return IndiaLocationData.citiesForState(_selectedState);
+  }
+
+  void _hydrateLocationSelection({
+    String? state,
+    String? city,
+  }) {
+    final stateValue = (state ?? '').trim();
+    final cityValue = (city ?? '').trim();
+
+    if (IndiaLocationData.stateExists(stateValue)) {
+      _selectedState = stateValue;
+      _stateController.text = stateValue;
+    } else {
+      _selectedState = null;
+      _stateController.clear();
+    }
+
+    if (_selectedState != null &&
+        IndiaLocationData.cityBelongsToState(state: _selectedState!, city: cityValue)) {
+      final matchedCity = IndiaLocationData.citiesForState(_selectedState).firstWhere(
+        (item) => item.toLowerCase() == cityValue.toLowerCase(),
+        orElse: () => cityValue,
+      );
+      _selectedCity = matchedCity;
+      _cityController.text = matchedCity;
+      return;
+    }
+
+    _selectedCity = null;
+    _cityController.clear();
+  }
+
+  void _onStateSelected(String? state) {
+    setState(() {
+      _selectedState = state;
+      _stateController.text = state ?? '';
+      _selectedCity = null;
+      _cityController.clear();
+    });
+  }
+
+  void _onCitySelected(String? city) {
+    setState(() {
+      _selectedCity = city;
+      _cityController.text = city ?? '';
+    });
+  }
+
+  Future<String?> _showSearchableOptionPicker({
+    required String title,
+    required List<String> options,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        String query = '';
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filtered = options
+                .where((item) => item.toLowerCase().contains(query.toLowerCase()))
+                .toList();
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.72,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                        child: TextField(
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: 'Search $title',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            suffixIcon: query.isEmpty
+                                ? null
+                                : IconButton(
+                                    onPressed: () {
+                                      setModalState(() {
+                                        query = '';
+                                      });
+                                    },
+                                    icon: const Icon(Icons.clear_rounded),
+                                  ),
+                          ),
+                          onChanged: (value) {
+                            setModalState(() {
+                              query = value.trim();
+                            });
+                          },
+                        ),
+                      ),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No results found',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) => const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = filtered[index];
+                                  return ListTile(
+                                    title: Text(item),
+                                    onTap: () => Navigator.pop(sheetContext, item),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _pickStateFromSearch() async {
+    if (_isProfileSaving) {
+      return;
+    }
+
+    final selected = await _showSearchableOptionPicker(
+      title: 'state',
+      options: _availableStates,
+    );
+
+    if (!mounted || selected == null) {
+      return;
+    }
+
+    _onStateSelected(selected);
+    _providerProfileFormKey.currentState?.validate();
+  }
+
+  Future<void> _pickCityFromSearch() async {
+    if (_isProfileSaving) {
+      return;
+    }
+
+    if (_selectedState == null) {
+      _showMessage('Please select a state first.');
+      return;
+    }
+
+    final selected = await _showSearchableOptionPicker(
+      title: 'city',
+      options: _availableCities,
+    );
+
+    if (!mounted || selected == null) {
+      return;
+    }
+
+    _onCitySelected(selected);
+    _providerProfileFormKey.currentState?.validate();
+  }
+
+  String? _validateContactNumber(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return 'Contact number is required';
+    }
+
+    if (!IndiaLocationData.isValidIndianPhone(text)) {
+      return 'Enter a valid 10-digit Indian mobile number';
+    }
+
+    return null;
+  }
+
+  String? _validateAddress(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return 'Address is required';
+    }
+
+    if (text.length < 10) {
+      return 'Address should be at least 10 characters';
+    }
+
+    return null;
+  }
+
+  String? _validateState(String? value) {
+    final state = (value ?? '').trim();
+    if (state.isEmpty) {
+      return 'Please select a state';
+    }
+
+    if (!IndiaLocationData.stateExists(state)) {
+      return 'Please select a valid state';
+    }
+
+    return null;
+  }
+
+  String? _validateCity(String? value) {
+    final city = (value ?? '').trim();
+    if (city.isEmpty) {
+      return 'Please select a city';
+    }
+
+    final state = (_selectedState ?? '').trim();
+    if (state.isEmpty) {
+      return 'Select a state first';
+    }
+
+    if (!IndiaLocationData.cityBelongsToState(state: state, city: city)) {
+      return 'Please select a valid city for the selected state';
+    }
+
+    return null;
+  }
+
+  String? _validatePincode(String? value) {
+    final pincode = (value ?? '').trim();
+    if (pincode.isEmpty) {
+      return 'Pincode is required';
+    }
+
+    if (!IndiaLocationData.isValidIndianPincode(pincode)) {
+      return 'Enter a valid 6-digit pincode';
+    }
+
+    final state = (_selectedState ?? '').trim();
+    if (state.isNotEmpty &&
+        !IndiaLocationData.isPincodeCompatibleWithState(
+          state: state,
+          pincode: pincode,
+        )) {
+      return 'Pincode does not match the selected state';
+    }
+
+    return null;
+  }
+
+  String? _validateExperience(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    final years = int.tryParse(text);
+    if (years == null || years < 0 || years > 60) {
+      return 'Experience must be between 0 and 60 years';
+    }
+
+    return null;
+  }
+
+  String? _validateSkills(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    if (text.length < 2) {
+      return 'Enter at least one valid skill';
+    }
+
+    return null;
+  }
+
+  String? _validateBio(String? value) {
+    final text = (value ?? '').trim();
+    if (text.length > 300) {
+      return 'Bio should be at most 300 characters';
+    }
+
+    return null;
+  }
+
+  ImageProvider<Object>? _providerHeaderImage() {
+    if (_selectedProfileImageBytes != null) {
+      return MemoryImage(_selectedProfileImageBytes!);
+    }
+
+    final imageUrl = _providerProfile?.profileImageUrl?.trim() ?? '';
+    if (imageUrl.isNotEmpty) {
+      return NetworkImage(imageUrl);
+    }
+
+    return null;
+  }
+
+  Widget _buildProfileSection({
+    required BuildContext context,
+    required String title,
+    required String subtitle,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFD4DDE2)),
+        color: const Color(0xFFF9FCFB),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
+    );
   }
 
   List<String> _normalizeServiceTypes(List<String> rawTypes) {
@@ -881,9 +1226,10 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     }
   }
 
-  Future<void> _updateBookingStatus(
+  Future<bool> _updateBookingStatus(
     BookingModel booking,
     String status,
+    String? trackingNote,
   ) async {
     setState(() {
       _statusUpdatingBookingId = booking.id;
@@ -894,12 +1240,15 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         bookingId: booking.id,
         providerId: widget.userId,
         status: status,
+        trackingNote: trackingNote,
       );
 
       await _loadDashboardData();
       _showMessage('Booking updated to $status');
+      return true;
     } catch (e) {
       _showMessage(e.toString().replaceFirst('Exception: ', ''));
+      return false;
     } finally {
       if (mounted) {
         setState(() {
@@ -907,6 +1256,86 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         });
       }
     }
+  }
+
+  Future<void> _openStatusUpdateDialog(
+    BookingModel booking,
+    String status,
+  ) async {
+    final noteController = TextEditingController(text: booking.trackingNote ?? '');
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Update to ${_statusLabel(status)}'),
+              content: TextField(
+                controller: noteController,
+                maxLines: 3,
+                maxLength: 200,
+                enabled: !isSubmitting,
+                decoration: const InputDecoration(
+                  labelText: 'Tracking note',
+                  alignLabelWithHint: true,
+                  hintText: 'e.g., Reached customer location',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final navigator = Navigator.of(dialogContext);
+                          setDialogState(() {
+                            isSubmitting = true;
+                          });
+
+                          final success = await _updateBookingStatus(
+                            booking,
+                            status,
+                            noteController.text.trim(),
+                          );
+
+                          if (!mounted) {
+                            return;
+                          }
+
+                          if (success) {
+                            navigator.pop();
+                          } else {
+                            setDialogState(() {
+                              isSubmitting = false;
+                            });
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Update'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    noteController.dispose();
   }
 
   Future<void> _replyToReview(ReviewModel review) async {
@@ -943,14 +1372,27 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
   }
 
   Future<void> _saveProviderProfile() async {
-    final contactNumber = _contactController.text.trim();
-    final address = _addressController.text.trim();
-    final city = _cityController.text.trim();
-
-    if (contactNumber.isEmpty || address.isEmpty || city.isEmpty) {
-      _showMessage('Contact number, address, and city are required.');
+    final isValid = _providerProfileFormKey.currentState?.validate() ?? false;
+    if (!isValid) {
+      _showMessage('Please fix the highlighted profile fields.');
       return;
     }
+
+    final contactNumber = IndiaLocationData.digitsOnly(_contactController.text);
+    final address = _addressController.text.trim();
+    final city = (_selectedCity ?? '').trim();
+    final state = (_selectedState ?? '').trim();
+    final pincode = _pincodeController.text.trim();
+
+    if (city.isEmpty || state.isEmpty) {
+      _showMessage('Please choose a valid state and city.');
+      return;
+    }
+
+    _contactController.text = contactNumber;
+    _cityController.text = city;
+    _stateController.text = state;
+    _pincodeController.text = pincode;
 
     int? experienceYears;
     if (_experienceController.text.trim().isNotEmpty) {
@@ -971,8 +1413,8 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         contactNumber: contactNumber,
         address: address,
         city: city,
-        state: _stateController.text.trim(),
-        pincode: _pincodeController.text.trim(),
+        state: state,
+        pincode: pincode,
         experienceYears: experienceYears,
         skills: _skillsController.text.trim(),
         bio: _bioController.text.trim(),
@@ -987,6 +1429,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
       }
 
       if (!mounted) return;
+      _bindProviderProfileFields(updatedProfile);
       setState(() {
         _providerProfile = updatedProfile;
         _profileImageDirty = false;
@@ -1050,6 +1493,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     final visibleServices = _visibleServices();
     final hasActiveFilter = _searchQuery.trim().isNotEmpty;
     final providerProfile = _providerProfile;
+    final providerHeaderImage = _providerHeaderImage();
     final earnings = _earnings;
     final providerBookings = _providerBookings;
     final providerReviews = _providerReviews;
@@ -1080,7 +1524,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
               physics: const BouncingScrollPhysics(),
               slivers: [
                 SliverAppBar(
-                  expandedHeight: 280,
+                  toolbarHeight: 68,
                   pinned: true,
                   floating: false,
                   centerTitle: true,
@@ -1094,6 +1538,21 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                     ),
                   ),
                   actions: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 10, 4, 10),
+                      child: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: Colors.white.withValues(alpha: 0.24),
+                        backgroundImage: providerHeaderImage,
+                        child: providerHeaderImage == null
+                            ? const Icon(
+                                Icons.person_outline_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              )
+                            : null,
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
                       child: Tooltip(
@@ -1122,9 +1581,11 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                       ),
                     ),
                   ],
-                  flexibleSpace: FlexibleSpaceBar(
-                    background: Container(
-                      margin: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    child: Container(
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFF0E6F67), Color(0xFF184B46)],
@@ -1132,72 +1593,92 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0A2F2B).withValues(alpha: 0.22),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
                       ),
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          final compact = constraints.maxHeight < 230;
+                          final compact = constraints.maxWidth < 360;
 
-                          return ListView(
-                            physics: const NeverScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(18, 64, 18, 16),
-                            children: [
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: Colors.white.withValues(alpha: 0.22),
-                                    child: const Icon(
-                                      Icons.storefront_rounded,
-                                      color: Colors.white,
-                                      size: 20,
+                          return Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              compact ? 14 : 18,
+                              compact ? 14 : 18,
+                              compact ? 14 : 18,
+                              compact ? 14 : 16,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: Colors.white.withValues(alpha: 0.22),
+                                      backgroundImage: providerHeaderImage,
+                                      child: providerHeaderImage == null
+                                          ? const Icon(
+                                              Icons.storefront_rounded,
+                                              color: Colors.white,
+                                              size: 20,
+                                            )
+                                          : null,
                                     ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      'Hello, ${_displayName.isEmpty ? 'Provider' : _displayName}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: compact ? 16 : 18,
-                                        fontWeight: FontWeight.w700,
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Hello, ${_displayName.isEmpty ? 'Provider' : _displayName}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: compact ? 17 : 19,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Manage services, bookings, and customer trust from one place.',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Color(0xFFE5F6F3),
-                                  fontSize: 13,
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _HeaderInfoChip(
-                                    icon: Icons.inventory_2_outlined,
-                                    text: '${_myServices.length} services',
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Manage services, bookings, and customer trust from one place.',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Color(0xFFE5F6F3),
+                                    fontSize: 13,
                                   ),
-                                  _HeaderInfoChip(
-                                    icon: Icons.receipt_long_outlined,
-                                    text: '${providerBookings.length} bookings',
-                                  ),
-                                  if (providerProfile != null)
+                                ),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
                                     _HeaderInfoChip(
-                                      icon: Icons.star_rounded,
-                                      text: '${providerProfile.ratingAverage.toStringAsFixed(1)} rating',
+                                      icon: Icons.inventory_2_outlined,
+                                      text: '${_myServices.length} services',
                                     ),
-                                ],
-                              ),
-                            ],
+                                    _HeaderInfoChip(
+                                      icon: Icons.receipt_long_outlined,
+                                      text: '${providerBookings.length} bookings',
+                                    ),
+                                    if (providerProfile != null)
+                                      _HeaderInfoChip(
+                                        icon: Icons.star_rounded,
+                                        text: '${providerProfile.ratingAverage.toStringAsFixed(1)} rating',
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -1209,10 +1690,11 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        final compact = constraints.maxWidth < 380;
+                        final stacked = constraints.maxWidth < 340;
 
-                        if (compact) {
+                        if (stacked) {
                           return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               _MetricCard(
                                 label: 'Total',
@@ -1236,6 +1718,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                         }
 
                         return Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Expanded(
                               child: _MetricCard(
@@ -1310,154 +1793,229 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                             const SizedBox(height: 12),
-                            TextField(
-                              controller: _contactController,
-                              keyboardType: TextInputType.phone,
-                              decoration: const InputDecoration(
-                                labelText: 'Contact Number *',
-                                prefixIcon: Icon(Icons.phone_outlined),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: _addressController,
-                              decoration: const InputDecoration(
-                                labelText: 'Address *',
-                                prefixIcon: Icon(Icons.home_outlined),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: _cityController,
-                              decoration: const InputDecoration(
-                                labelText: 'City *',
-                                prefixIcon: Icon(Icons.location_city_outlined),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _stateController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'State',
-                                      prefixIcon: Icon(Icons.map_outlined),
-                                    ),
-                                  ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlinedButton.icon(
+                                onPressed: _isProfileSaving
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _showProviderProfileForm = !_showProviderProfileForm;
+                                        });
+                                      },
+                                icon: Icon(
+                                  _showProviderProfileForm
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.edit_note_rounded,
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _pincodeController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Pincode',
-                                      prefixIcon: Icon(Icons.pin_drop_outlined),
-                                    ),
-                                  ),
+                                label: Text(
+                                  _showProviderProfileForm
+                                      ? 'Hide Profile Form'
+                                      : 'Edit Profile Details',
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFD4DDE2)),
-                                color: const Color(0xFFF9FCFB),
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Profile Image (stored in database)',
-                                    style: Theme.of(context).textTheme.bodyMedium,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 58,
-                                        height: 58,
-                                        clipBehavior: Clip.antiAlias,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFE7F0EE),
-                                          borderRadius: BorderRadius.circular(12),
+                            ),
+                            if (!_showProviderProfileForm) ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF6FAF9),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFD7E3E6)),
+                                ),
+                                child: Text(
+                                  'Profile form is hidden by default. Tap "Edit Profile Details" when you want to update contact, service area, or professional info.',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ),
+                            ],
+                            if (_showProviderProfileForm) ...[
+                              const SizedBox(height: 12),
+                              Form(
+                                key: _providerProfileFormKey,
+                                autovalidateMode: AutovalidateMode.onUserInteraction,
+                                child: Column(
+                                  children: [
+                                    _buildProfileSection(
+                                      context: context,
+                                      title: 'Primary Contact',
+                                      subtitle: 'Keep this accurate so customers can reach you quickly.',
+                                      children: [
+                                        TextFormField(
+                                          controller: _contactController,
+                                          keyboardType: TextInputType.phone,
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly,
+                                            LengthLimitingTextInputFormatter(10),
+                                          ],
+                                          decoration: const InputDecoration(
+                                            labelText: 'Contact Number *',
+                                            prefixIcon: Icon(Icons.phone_outlined),
+                                          ),
+                                          validator: _validateContactNumber,
                                         ),
-                                        child: _selectedProfileImageBytes == null
-                                            ? const Icon(Icons.person_outline_rounded)
-                                            : Image.memory(
-                                                _selectedProfileImageBytes!,
-                                                fit: BoxFit.cover,
-                                              ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          _selectedProfileImageName ?? 'No image selected',
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _addressController,
                                           maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Address *',
+                                            prefixIcon: Icon(Icons.home_outlined),
+                                          ),
+                                          validator: _validateAddress,
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      OutlinedButton.icon(
-                                        onPressed: _isProfileSaving ? null : _pickProfileImage,
-                                        icon: const Icon(Icons.upload_file_rounded),
-                                        label: const Text('Choose Image'),
-                                      ),
-                                      if (_selectedProfileImageBytes != null)
-                                        OutlinedButton.icon(
-                                          onPressed: _isProfileSaving ? null : _removeProfileImage,
-                                          icon: const Icon(Icons.delete_outline_rounded),
-                                          label: const Text('Remove'),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _buildProfileSection(
+                                      context: context,
+                                      title: 'Service Area',
+                                      subtitle: 'State, city and pincode are validated before save.',
+                                      children: [
+                                        TextFormField(
+                                          controller: _stateController,
+                                          readOnly: true,
+                                          onTap: _pickStateFromSearch,
+                                          decoration: const InputDecoration(
+                                            labelText: 'State *',
+                                            prefixIcon: Icon(Icons.map_outlined),
+                                            suffixIcon: Icon(Icons.search_rounded),
+                                          ),
+                                          validator: _validateState,
                                         ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _experienceController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Experience (years)',
-                                      prefixIcon: Icon(Icons.work_history_outlined),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _cityController,
+                                          readOnly: true,
+                                          onTap: _selectedState == null ? null : _pickCityFromSearch,
+                                          decoration: InputDecoration(
+                                            labelText: 'City *',
+                                            prefixIcon: const Icon(Icons.location_city_outlined),
+                                            suffixIcon: const Icon(Icons.search_rounded),
+                                            hintText: _selectedState == null
+                                                ? 'Select state first'
+                                                : null,
+                                          ),
+                                          validator: _validateCity,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _pincodeController,
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly,
+                                            LengthLimitingTextInputFormatter(6),
+                                          ],
+                                          decoration: const InputDecoration(
+                                            labelText: 'Pincode *',
+                                            prefixIcon: Icon(Icons.pin_drop_outlined),
+                                          ),
+                                          validator: _validatePincode,
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _skillsController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Skills',
-                                      prefixIcon: Icon(Icons.handyman_outlined),
+                                    const SizedBox(height: 10),
+                                    _buildProfileSection(
+                                      context: context,
+                                      title: 'Professional Details',
+                                      subtitle: 'Share your expertise and specialties for better bookings.',
+                                      children: [
+                                        TextFormField(
+                                          controller: _experienceController,
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly,
+                                            LengthLimitingTextInputFormatter(2),
+                                          ],
+                                          decoration: const InputDecoration(
+                                            labelText: 'Experience (years)',
+                                            prefixIcon: Icon(Icons.work_history_outlined),
+                                          ),
+                                          validator: _validateExperience,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _skillsController,
+                                          minLines: 2,
+                                          maxLines: 2,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Skills (comma separated)',
+                                            prefixIcon: Icon(Icons.handyman_outlined),
+                                          ),
+                                          validator: _validateSkills,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextFormField(
+                                          controller: _bioController,
+                                          maxLines: 3,
+                                          maxLength: 300,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Professional Bio',
+                                            prefixIcon: Icon(Icons.notes_outlined),
+                                          ),
+                                          validator: _validateBio,
+                                        ),
+                                      ],
                                     ),
-                                  ),
+                                    const SizedBox(height: 10),
+                                    _buildProfileSection(
+                                      context: context,
+                                      title: 'Profile Photo',
+                                      subtitle: 'This photo appears to customers as your public profile icon.',
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 58,
+                                              height: 58,
+                                              clipBehavior: Clip.antiAlias,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFE7F0EE),
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              child: _selectedProfileImageBytes == null
+                                                  ? const Icon(Icons.person_outline_rounded)
+                                                  : Image.memory(
+                                                      _selectedProfileImageBytes!,
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                _selectedProfileImageName ?? 'No image selected',
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            OutlinedButton.icon(
+                                              onPressed: _isProfileSaving ? null : _pickProfileImage,
+                                              icon: const Icon(Icons.upload_file_rounded),
+                                              label: const Text('Choose Image'),
+                                            ),
+                                            if (_selectedProfileImageBytes != null)
+                                              OutlinedButton.icon(
+                                                onPressed: _isProfileSaving ? null : _removeProfileImage,
+                                                icon: const Icon(Icons.delete_outline_rounded),
+                                                label: const Text('Remove'),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: _bioController,
-                              maxLines: 2,
-                              decoration: const InputDecoration(
-                                labelText: 'Professional Bio',
-                                prefixIcon: Icon(Icons.notes_outlined),
                               ),
-                            ),
+                            ],
                             if (providerProfile != null) ...[
                               const SizedBox(height: 10),
                               Wrap(
@@ -1485,26 +2043,28 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                                 ],
                               ),
                             ],
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: _isProfileSaving ? null : _saveProviderProfile,
-                                icon: _isProfileSaving
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.save_as_rounded),
-                                label: Text(
-                                  _isProfileSaving ? 'Saving Profile...' : 'Save Provider Profile',
+                            if (_showProviderProfileForm) ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  onPressed: _isProfileSaving ? null : _saveProviderProfile,
+                                  icon: _isProfileSaving
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Icon(Icons.save_as_rounded),
+                                  label: Text(
+                                    _isProfileSaving ? 'Saving Profile...' : 'Save Provider Profile',
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
                       ),
@@ -1530,10 +2090,10 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                             const SizedBox(height: 10),
-                            Wrap(
+                            const Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: const [
+                              children: [
                                 _PermissionChip(
                                   icon: Icons.location_on_outlined,
                                   text: 'Location',
@@ -1813,7 +2373,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                                                   onPressed: _statusUpdatingBookingId == booking.id ||
                                                           booking.status == status
                                                       ? null
-                                                      : () => _updateBookingStatus(booking, status),
+                                                      : () => _openStatusUpdateDialog(booking, status),
                                                   label: Text(_statusLabel(status)),
                                                 ),
                                               )
@@ -2262,28 +2822,39 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 18, color: AppTheme.brand),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge,
+    return SizedBox(
+      width: double.infinity,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 128),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 20, color: AppTheme.brand),
+                  const SizedBox(height: 8),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+          ),
         ),
       ),
     );

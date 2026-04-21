@@ -15,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.lsm.backend.dto.ProviderLocationUpdateRequest;
 import com.lsm.backend.dto.ProviderProfileUpdateRequest;
+import com.lsm.backend.dto.UserProfileUpdateRequest;
 import com.lsm.backend.dto.UserProfileResponse;
 import com.lsm.backend.service.UserProfileService;
 
@@ -31,6 +32,13 @@ public class UserController {
     @GetMapping("/{userId}")
     public ResponseEntity<UserProfileResponse> getUserProfile(@PathVariable Long userId) {
         return ResponseEntity.ok(userProfileService.getProfile(userId));
+    }
+
+    @PutMapping("/{userId}/profile")
+    public ResponseEntity<UserProfileResponse> updateUserProfile(
+            @PathVariable Long userId,
+            @RequestBody UserProfileUpdateRequest request) {
+        return ResponseEntity.ok(userProfileService.updateUserProfile(userId, request));
     }
 
     @PutMapping("/{userId}/provider-profile")
