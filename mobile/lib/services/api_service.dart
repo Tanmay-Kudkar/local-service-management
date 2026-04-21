@@ -13,12 +13,14 @@ import '../models/user_profile.dart';
 
 class ApiService {
   static const Duration _requestTimeout = Duration(seconds: 45);
+  static const String _fallbackBaseUrl = 'https://servico-app-server.onrender.com';
 
   static String get baseUrl {
-    if (kIsWeb) {
-      return 'http://localhost:8080';
+    const configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+    if (configuredBaseUrl.isNotEmpty) {
+      return configuredBaseUrl;
     }
-    return 'http://10.0.2.2:8080';
+    return _fallbackBaseUrl;
   }
 
   static Future<AuthResponse> register({

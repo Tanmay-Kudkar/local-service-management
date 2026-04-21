@@ -1,0 +1,168 @@
+############################################################
+# 🔥 GENERAL (Applies to all projects)
+############################################################
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables (never commit secrets)
+.env
+.env.*
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+############################################################
+# 🚀 FLUTTER / DART SECTION
+############################################################
+
+# Flutter build outputs
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+.dart_tool/
+
+# Dart files
+*.dart.js
+*.dart_tool/
+
+# Flutter generated files
+.generated/
+.generated_plugin_registrant.dart
+
+# iOS specific
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/App.framework
+
+# Android specific
+android/.gradle/
+android/local.properties
+android/app/build/
+
+# Flutter assets cache
+**/doc/api/
+**/ios/Flutter/.last_build_id
+
+# Misc
+.flutter-plugins
+.metadata
+
+############################################################
+# ☕ SPRING BOOT / JAVA SECTION
+############################################################
+
+# Compiled class files
+*.class
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Spring Boot logs
+*.log
+
+# Application properties (sensitive configs)
+application.properties
+application.yml
+
+# Keep example configs instead
+!application-example.properties
+!application-example.yml
+
+############################################################
+# 🗄️ DATABASE / RUNTIME FILES
+############################################################
+
+# H2 database files
+*.mv.db
+*.trace.db
+
+# SQLite
+*.sqlite
+*.db
+
+############################################################
+# 🔐 SECURITY (IMPORTANT)
+############################################################
+
+# Private keys / certificates
+*.key
+*.pem
+*.crt
+
+# Firebase / Google configs (optional, if sensitive)
+google-services.json
+GoogleService-Info.plist
+
+############################################################
+# 📦 DEPENDENCY CACHES
+############################################################
+
+# Node (if used in frontend tooling)
+node_modules/
+
+# Yarn / npm cache
+.npm/
+.yarn/
+
+############################################################
+# 🧪 TEST OUTPUTS
+############################################################
+
+coverage/
+test-output/
+
+############################################################
+# 📁 OPTIONAL PROJECT STRUCTURE SUPPORT
+############################################################
+
+# If you have structure like:
+# /frontend (Flutter)
+# /backend (Spring Boot)
+
+frontend/build/
+backend/target/
+
+############################################################
+# 🧹 MISC
+############################################################
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# Backup files
+*.bak
+*.old
