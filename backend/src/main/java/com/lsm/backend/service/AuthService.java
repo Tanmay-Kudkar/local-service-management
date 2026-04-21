@@ -78,11 +78,11 @@ public class AuthService {
             throw new BadRequestException("Email and password are required");
         }
 
-        User user = userRepository.findByEmailIgnoreCase(email)
+        UserRepository.AuthLoginProjection authUser = userRepository.findAuthLoginByEmail(email)
                 .orElseThrow(() -> new BadRequestException("Invalid email or password"));
 
-        String storedPassword = user.getPassword();
-        if (storedPassword == null || storedPassword.trim().isEmpty()) {
+        String storedPassword = normalizeNullableText(authUser.getPassword());
+        if (storedPassword == null) {
             throw new BadRequestException("Account password is not set. Please register again.");
         }
 
@@ -90,13 +90,26 @@ public class AuthService {
             throw new BadRequestException("Invalid email or password");
         }
 
-        Role role = normalizeRole(user);
+        Role role = normalizeRoleForLogin(authUser);
+        String userName = normalizeNullableText(authUser.getName());
+        if (userName == null) {
+            userName = "User";
+        }
 
         return new AuthResponse(
-                user.getId(),
-                user.getName(),
+                authUser.getId(),
+                userName,
                 role.name(),
                 "Login successful");
+    }
+
+    private Role normalizeRoleForLogin(UserRepository.AuthLoginProjection authUser) {
+        if (authUser.getRole() == null) {
+            userRepository.updateRoleById(authUser.getId(), Role.USER);
+            return Role.USER;
+        }
+
+        return authUser.getRole();
     }
 
     private Role normalizeRole(User user) {
