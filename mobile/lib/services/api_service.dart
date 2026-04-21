@@ -62,6 +62,16 @@ class ApiService {
     await prefs.setString(_serverModePreferenceKey, mode.name);
   }
 
+  static Future<bool> hasStoredServerModeChoice() async {
+    if (_configuredBaseUrl.isNotEmpty || _configuredServerMode.isNotEmpty) {
+      return true;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_serverModePreferenceKey)?.trim().toLowerCase();
+    return stored == 'local' || stored == 'deployed';
+  }
+
   static bool get isServerModeRuntimeConfigurable {
     return _configuredBaseUrl.isEmpty && _configuredServerMode.isEmpty;
   }

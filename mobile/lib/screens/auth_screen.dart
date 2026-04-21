@@ -178,7 +178,7 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
 
       if (!mounted) return;
       if (authResponse.role == 'PROVIDER') {
-        Navigator.pushReplacement(
+        Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => ProviderDashboardScreen(
@@ -190,7 +190,7 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
         return;
       }
 
-      Navigator.pushReplacement(
+      Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ServiceListScreen(

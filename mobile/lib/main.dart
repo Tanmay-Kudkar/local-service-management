@@ -3,8 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/auth_screen.dart';
 import 'screens/provider_dashboard_screen.dart';
+import 'screens/server_mode_gate_screen.dart';
 import 'screens/service_list_screen.dart';
-import 'screens/startup_permissions_screen.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -37,23 +37,23 @@ class LocalServiceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final initialScreen = savedUserId == null
+        ? const AuthScreen()
+        : (savedUserRole == 'PROVIDER'
+            ? ProviderDashboardScreen(
+                userId: savedUserId!,
+                userName: savedUserName,
+              )
+            : ServiceListScreen(
+                userId: savedUserId!,
+                userName: savedUserName,
+              ));
+
     return MaterialApp(
       title: 'Local Service App',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
-      home: StartupPermissionsScreen(
-        nextScreen: savedUserId == null
-            ? const AuthScreen()
-            : (savedUserRole == 'PROVIDER'
-                ? ProviderDashboardScreen(
-                    userId: savedUserId!,
-                    userName: savedUserName,
-                  )
-                : ServiceListScreen(
-                    userId: savedUserId!,
-                    userName: savedUserName,
-                  )),
-      ),
+      home: ServerModeGateScreen(nextScreen: initialScreen),
     );
   }
 }

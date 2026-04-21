@@ -1053,23 +1053,41 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     final earnings = _earnings;
     final providerBookings = _providerBookings;
     final providerReviews = _providerReviews;
+    final hasPreviousRoute = Navigator.of(context).canPop();
 
-    return Scaffold(
-      body: AppBackground(
-        child: SafeArea(
-          child: RefreshIndicator(
-            onRefresh: _loadDashboardData,
-            child: CustomScrollView(
+    return PopScope(
+      canPop: hasPreviousRoute,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+
+        if (hasPreviousRoute) {
+          return;
+        }
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AuthScreen()),
+        );
+      },
+      child: Scaffold(
+        body: AppBackground(
+          child: SafeArea(
+            child: RefreshIndicator(
+              onRefresh: _loadDashboardData,
+              child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
                 SliverAppBar(
-                  expandedHeight: 210,
+                  expandedHeight: 280,
                   pinned: true,
                   floating: false,
+                  centerTitle: true,
                   surfaceTintColor: Colors.transparent,
                   backgroundColor: const Color(0xFF0E6F67),
                   title: const Text(
-                    'Provider Dashboard',
+                    'Provider Hub',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
@@ -1091,19 +1109,14 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
-                      child: TextButton.icon(
-                        onPressed: _logout,
-                        icon: const Icon(Icons.logout_rounded, size: 18),
-                        label: const Text('Logout'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Colors.white.withValues(alpha: 0.18),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                      child: Tooltip(
+                        message: 'Logout',
+                        child: IconButton(
+                          onPressed: _logout,
+                          icon: const Icon(Icons.logout_rounded),
+                          style: IconButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor: Colors.white.withValues(alpha: 0.18),
                           ),
                         ),
                       ),
@@ -1112,7 +1125,6 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                   flexibleSpace: FlexibleSpaceBar(
                     background: Container(
                       margin: const EdgeInsets.fromLTRB(14, 14, 14, 8),
-                      padding: const EdgeInsets.fromLTRB(18, 64, 18, 16),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFF0E6F67), Color(0xFF184B46)],
@@ -1121,46 +1133,73 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                         ),
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compact = constraints.maxHeight < 230;
+
+                          return ListView(
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(18, 64, 18, 16),
                             children: [
-                              CircleAvatar(
-                                radius: 18,
-                                backgroundColor: Colors.white.withValues(alpha: 0.22),
-                                child: const Icon(
-                                  Icons.storefront_rounded,
-                                  color: Colors.white,
-                                  size: 20,
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: Colors.white.withValues(alpha: 0.22),
+                                    child: const Icon(
+                                      Icons.storefront_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Hello, ${_displayName.isEmpty ? 'Provider' : _displayName}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: compact ? 16 : 18,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Manage services, bookings, and customer trust from one place.',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Color(0xFFE5F6F3),
+                                  fontSize: 13,
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Hello, ${_displayName.isEmpty ? 'Provider' : _displayName}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700,
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _HeaderInfoChip(
+                                    icon: Icons.inventory_2_outlined,
+                                    text: '${_myServices.length} services',
                                   ),
-                                ),
+                                  _HeaderInfoChip(
+                                    icon: Icons.receipt_long_outlined,
+                                    text: '${providerBookings.length} bookings',
+                                  ),
+                                  if (providerProfile != null)
+                                    _HeaderInfoChip(
+                                      icon: Icons.star_rounded,
+                                      text: '${providerProfile.ratingAverage.toStringAsFixed(1)} rating',
+                                    ),
+                                ],
                               ),
                             ],
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Manage services, prices, and descriptions like a production provider app.',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Color(0xFFE5F6F3),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1168,32 +1207,62 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _MetricCard(
-                            label: 'Total',
-                            value: '${_myServices.length}',
-                            icon: Icons.inventory_2_rounded,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _MetricCard(
-                            label: 'Avg Price',
-                            value: 'Rs ${_averagePrice.toStringAsFixed(0)}',
-                            icon: Icons.payments_rounded,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _MetricCard(
-                            label: 'Custom',
-                            value: '$_customTypeCount',
-                            icon: Icons.auto_awesome_rounded,
-                          ),
-                        ),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final compact = constraints.maxWidth < 380;
+
+                        if (compact) {
+                          return Column(
+                            children: [
+                              _MetricCard(
+                                label: 'Total',
+                                value: '${_myServices.length}',
+                                icon: Icons.inventory_2_rounded,
+                              ),
+                              const SizedBox(height: 10),
+                              _MetricCard(
+                                label: 'Avg Price',
+                                value: 'Rs ${_averagePrice.toStringAsFixed(0)}',
+                                icon: Icons.payments_rounded,
+                              ),
+                              const SizedBox(height: 10),
+                              _MetricCard(
+                                label: 'Custom',
+                                value: '$_customTypeCount',
+                                icon: Icons.auto_awesome_rounded,
+                              ),
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: _MetricCard(
+                                label: 'Total',
+                                value: '${_myServices.length}',
+                                icon: Icons.inventory_2_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MetricCard(
+                                label: 'Avg Price',
+                                value: 'Rs ${_averagePrice.toStringAsFixed(0)}',
+                                icon: Icons.payments_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MetricCard(
+                                label: 'Custom',
+                                value: '$_customTypeCount',
+                                icon: Icons.auto_awesome_rounded,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -2175,6 +2244,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 }
@@ -2215,6 +2285,42 @@ class _MetricCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _HeaderInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _HeaderInfoChip({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.17),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFFEAF9F5)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Color(0xFFEAF9F5),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
