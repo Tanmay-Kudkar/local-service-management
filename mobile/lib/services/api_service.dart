@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -12,14 +13,35 @@ import '../models/user_profile.dart';
 
 class ApiService {
   static const Duration _requestTimeout = Duration(seconds: 45);
-  static const String _fallbackBaseUrl = 'https://servico-app-server.onrender.com';
+  static const String _deployedBaseUrl =
+      'https://servico-app-server.onrender.com';
+  static const String _defaultLocalBaseUrl = 'http://10.0.2.2:8080';
+  static const String _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
+  static const String _configuredLocalBaseUrl =
+      String.fromEnvironment('LOCAL_API_BASE_URL');
+  static const bool _preferDeployedBackend =
+      bool.fromEnvironment('PREFER_DEPLOYED_BACKEND', defaultValue: false);
+
+  static List<String> get _candidateBaseUrls {
+    if (_configuredBaseUrl.isNotEmpty) {
+      return [_normalizeBaseUrl(_configuredBaseUrl)];
+    }
+
+    final local = _normalizeBaseUrl(
+      _configuredLocalBaseUrl.isNotEmpty
+          ? _configuredLocalBaseUrl
+          : _defaultLocalBaseUrl,
+    );
+    final deployed = _normalizeBaseUrl(_deployedBaseUrl);
+
+    if (_preferDeployedBackend) {
+      return [deployed, local];
+    }
+    return [local, deployed];
+  }
 
   static String get baseUrl {
-    const configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
-    if (configuredBaseUrl.isNotEmpty) {
-      return configuredBaseUrl;
-    }
-    return _fallbackBaseUrl;
+    return _candidateBaseUrls.first;
   }
 
   static Future<AuthResponse> register({
@@ -293,20 +315,22 @@ class ApiService {
     required Uint8List fileBytes,
     required String fileName,
   }) async {
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$baseUrl/users/$userId/profile-image'),
+    final endpoint = Uri.parse('$baseUrl/users/$userId/profile-image');
+    final response = await _sendMultipart(
+      endpoint,
+      (uri) {
+        final request = http.MultipartRequest('POST', uri);
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            fileBytes,
+            filename: fileName,
+          ),
+        );
+        return request;
+      },
     );
 
-    request.files.add(
-      http.MultipartFile.fromBytes(
-        'file',
-        fileBytes,
-        filename: fileName,
-      ),
-    );
-
-    final response = await _sendMultipart(request);
     if (response.statusCode == 200) {
       return UserProfile.fromJson(jsonDecode(response.body));
     }
@@ -493,7 +517,10 @@ class ApiService {
     Uri uri, {
     Map<String, String>? headers,
   }) {
-    return _send(() => http.get(uri, headers: headers));
+    return _send(
+      uri,
+      (requestUri) => http.get(requestUri, headers: headers),
+    );
   }
 
   static Future<http.Response> _post(
@@ -501,7 +528,10 @@ class ApiService {
     Map<String, String>? headers,
     Object? body,
   }) {
-    return _send(() => http.post(uri, headers: headers, body: body));
+    return _send(
+      uri,
+      (requestUri) => http.post(requestUri, headers: headers, body: body),
+    );
   }
 
   static Future<http.Response> _put(
@@ -509,45 +539,99 @@ class ApiService {
     Map<String, String>? headers,
     Object? body,
   }) {
-    return _send(() => http.put(uri, headers: headers, body: body));
+    return _send(
+      uri,
+      (requestUri) => http.put(requestUri, headers: headers, body: body),
+    );
   }
 
   static Future<http.Response> _delete(
     Uri uri, {
     Map<String, String>? headers,
   }) {
-    return _send(() => http.delete(uri, headers: headers));
+    return _send(
+      uri,
+      (requestUri) => http.delete(requestUri, headers: headers),
+    );
   }
 
   static Future<http.Response> _send(
-    Future<http.Response> Function() request,
+    Uri initialUri,
+    Future<http.Response> Function(Uri requestUri) request,
   ) async {
-    try {
-      return await request().timeout(_requestTimeout);
-    } on TimeoutException {
+    bool timedOut = false;
+
+    for (final base in _candidateBaseUrls) {
+      final requestUri = _withBaseUrl(initialUri, base);
+
+      try {
+        return await request(requestUri).timeout(_requestTimeout);
+      } on TimeoutException {
+        timedOut = true;
+      } on http.ClientException {
+        // Try next backend candidate.
+      }
+    }
+
+    final targets = _candidateBaseUrls.join(' and ');
+
+    if (timedOut) {
       throw Exception(
-        'Server is taking longer than expected. It may be waking up after inactivity. Please try again in a few seconds.',
-      );
-    } on http.ClientException {
-      throw Exception(
-        'Unable to reach server right now. It may be waking up after inactivity. Please try again shortly.',
+        'Request timed out on both local and deployed backends ($targets). Please ensure your local backend is running or retry in a few seconds.',
       );
     }
+
+    throw Exception(
+      'Unable to reach both local and deployed backends ($targets). Please ensure your local backend is running or check network connectivity.',
+    );
   }
 
-  static Future<http.Response> _sendMultipart(http.MultipartRequest request) async {
-    try {
-      final streamed = await request.send().timeout(_requestTimeout);
-      return http.Response.fromStream(streamed);
-    } on TimeoutException {
+  static Future<http.Response> _sendMultipart(
+    Uri initialUri,
+    http.MultipartRequest Function(Uri requestUri) requestBuilder,
+  ) async {
+    bool timedOut = false;
+
+    for (final base in _candidateBaseUrls) {
+      final requestUri = _withBaseUrl(initialUri, base);
+
+      try {
+        final request = requestBuilder(requestUri);
+        final streamed = await request.send().timeout(_requestTimeout);
+        return http.Response.fromStream(streamed);
+      } on TimeoutException {
+        timedOut = true;
+      } on http.ClientException {
+        // Try next backend candidate.
+      }
+    }
+
+    final targets = _candidateBaseUrls.join(' and ');
+
+    if (timedOut) {
       throw Exception(
-        'Server is taking longer than expected. It may be waking up after inactivity. Please try again in a few seconds.',
-      );
-    } on http.ClientException {
-      throw Exception(
-        'Unable to reach server right now. It may be waking up after inactivity. Please try again shortly.',
+        'Upload timed out on both local and deployed backends ($targets). Please ensure your local backend is running or retry in a few seconds.',
       );
     }
+
+    throw Exception(
+      'Unable to upload to both local and deployed backends ($targets). Please ensure your local backend is running or check network connectivity.',
+    );
+  }
+
+  static Uri _withBaseUrl(Uri originalUri, String baseUrl) {
+    final base = Uri.parse(baseUrl);
+    return base.replace(
+      path: originalUri.path,
+      query: originalUri.hasQuery ? originalUri.query : null,
+    );
+  }
+
+  static String _normalizeBaseUrl(String input) {
+    final trimmed = input.trim();
+    return trimmed.endsWith('/')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
   }
 
   static String _readError(String body) {

@@ -48,6 +48,10 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   @override
   void initState() {
     super.initState();
+    _minPriceController.addListener(_onFilterTextChanged);
+    _maxPriceController.addListener(_onFilterTextChanged);
+    _minRatingController.addListener(_onFilterTextChanged);
+    _maxDistanceController.addListener(_onFilterTextChanged);
     _displayName = widget.userName.trim();
     _loadServices();
     _loadUserProfile();
@@ -61,11 +65,21 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
 
   @override
   void dispose() {
+    _minPriceController.removeListener(_onFilterTextChanged);
+    _maxPriceController.removeListener(_onFilterTextChanged);
+    _minRatingController.removeListener(_onFilterTextChanged);
+    _maxDistanceController.removeListener(_onFilterTextChanged);
     _minPriceController.dispose();
     _maxPriceController.dispose();
     _minRatingController.dispose();
     _maxDistanceController.dispose();
     super.dispose();
+  }
+
+  void _onFilterTextChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadServices() async {
@@ -296,6 +310,34 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
     return '$year-$month-$day';
   }
 
+  int _activeFilterCount() {
+    var count = 0;
+
+    if (_parseDoubleOrNull(_minPriceController.text) != null) {
+      count++;
+    }
+    if (_parseDoubleOrNull(_maxPriceController.text) != null) {
+      count++;
+    }
+    if (_parseDoubleOrNull(_minRatingController.text) != null) {
+      count++;
+    }
+    if (_parseDoubleOrNull(_maxDistanceController.text) != null) {
+      count++;
+    }
+    if (_onlyAvailable) {
+      count++;
+    }
+    if (_availableDate != null) {
+      count++;
+    }
+    if (_userLatitude != null && _userLongitude != null) {
+      count++;
+    }
+
+    return count;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -344,36 +386,67 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                   flexibleSpace: FlexibleSpaceBar(
                     collapseMode: CollapseMode.pin,
                     background: Container(
-                      margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                      margin: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppTheme.brand.withValues(alpha: 0.96),
-                            const Color(0xFF184B46),
+                            AppTheme.brand,
+                            const Color(0xFF165651),
+                            const Color(0xFF113F3B),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.18),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0A2F2B).withValues(alpha: 0.28),
+                            blurRadius: 24,
+                            offset: const Offset(0, 12),
+                          ),
+                        ],
                       ),
                       padding: const EdgeInsets.fromLTRB(20, 74, 20, 20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'Trusted Local Services',
+                              style: TextStyle(
+                                color: Color(0xFFE8FAF6),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
                           Text(
                             'Hello, ${_displayName.isEmpty ? 'User' : _displayName}',
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
-                              fontSize: 16,
+                              fontSize: 18,
                             ),
                           ),
                           const SizedBox(height: 6),
                           const Text(
                             'Book trusted local experts in seconds.',
                             style: TextStyle(
-                              color: Color(0xFFE5F6F3),
-                              fontSize: 13,
+                              color: Color(0xFFE7F8F4),
+                              fontSize: 13.5,
                             ),
                           ),
                           const Spacer(),
@@ -384,6 +457,25 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                               fontWeight: FontWeight.w700,
                               fontSize: 22,
                             ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _HeroPill(
+                                icon: Icons.inventory_2_outlined,
+                                text: _isLoading
+                                    ? 'Syncing listings'
+                                    : '${_services.length} ready now',
+                              ),
+                              _HeroPill(
+                                icon: Icons.my_location_rounded,
+                                text: _userLatitude == null
+                                    ? 'Location off'
+                                    : 'Location on',
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -409,134 +501,253 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                     child: Card(
                       child: Padding(
                         padding: const EdgeInsets.all(14),
-                        child: Column(
-                          children: [
-                            Row(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final compact = constraints.maxWidth < 360;
+                            final activeFilters = _activeFilterCount();
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _minPriceController,
-                                    keyboardType: const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Min price',
-                                      prefixIcon: Icon(Icons.price_change_outlined),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0F8F6),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: AppTheme.brand.withValues(alpha: 0.15),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _maxPriceController,
-                                    keyboardType: const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Max price',
-                                      prefixIcon: Icon(Icons.payments_outlined),
-                                    ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.tune_rounded,
+                                        color: AppTheme.brand,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Find Faster',
+                                        style: Theme.of(context).textTheme.titleLarge,
+                                      ),
+                                      const Spacer(),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: activeFilters > 0
+                                              ? AppTheme.brand.withValues(alpha: 0.14)
+                                              : const Color(0xFFE9EEEE),
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          activeFilters > 0
+                                              ? '$activeFilters active'
+                                              : 'No filters',
+                                          style: TextStyle(
+                                            color: activeFilters > 0
+                                                ? AppTheme.brand
+                                                : const Color(0xFF5F7270),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Filter by budget, rating, distance, date, and location.',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Quick Inputs',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.textPrimary,
+                                      ),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _minPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Min price',
+                                          prefixIcon: Icon(Icons.price_change_outlined),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _maxPriceController,
+                                        keyboardType: const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Max price',
+                                          prefixIcon: Icon(Icons.payments_outlined),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _minRatingController,
+                                        keyboardType: const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Min rating',
+                                          prefixIcon: Icon(Icons.star_border_rounded),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _maxDistanceController,
+                                        keyboardType: const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Max km',
+                                          prefixIcon: Icon(Icons.near_me_outlined),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                SwitchListTile.adaptive(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: _onlyAvailable,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _onlyAvailable = value;
+                                    });
+                                  },
+                                  title: const Text('Only available services'),
+                                  subtitle: Text(
+                                    _availableDate == null
+                                        ? 'Select a date to check availability'
+                                        : 'Date: ${_formatDate(_availableDate!)}',
+                                  ),
+                                ),
+                                if (_availableDate != null ||
+                                    (_userLatitude != null && _userLongitude != null)) ...[
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      if (_availableDate != null)
+                                        _FilterStatusChip(
+                                          icon: Icons.event_available_rounded,
+                                          text: _formatDate(_availableDate!),
+                                        ),
+                                      if (_userLatitude != null && _userLongitude != null)
+                                        _FilterStatusChip(
+                                          icon: Icons.my_location_rounded,
+                                          text:
+                                              '${_userLatitude!.toStringAsFixed(3)}, ${_userLongitude!.toStringAsFixed(3)}',
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: _pickAvailabilityDate,
+                                        icon: const Icon(Icons.event_available_rounded),
+                                        label: const Text('Set Date'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: _isFetchingLocation ? null : _useCurrentLocation,
+                                        icon: _isFetchingLocation
+                                            ? const SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.my_location_rounded),
+                                        label: Text(
+                                          _isFetchingLocation
+                                              ? 'Locating...'
+                                              : (_userLatitude == null
+                                                  ? 'Use Location'
+                                                  : 'Location Set'),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                if (compact)
+                                  Column(
+                                    children: [
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton.icon(
+                                          onPressed: _applyFilters,
+                                          icon: const Icon(Icons.filter_alt_rounded),
+                                          label: const Text('Apply Filters'),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: OutlinedButton.icon(
+                                          onPressed: _clearFilters,
+                                          icon: const Icon(Icons.filter_alt_off_rounded),
+                                          label: const Text('Clear'),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: _applyFilters,
+                                          icon: const Icon(Icons.filter_alt_rounded),
+                                          label: const Text('Apply Filters'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      OutlinedButton.icon(
+                                        onPressed: _clearFilters,
+                                        icon: const Icon(Icons.filter_alt_off_rounded),
+                                        label: const Text('Clear'),
+                                      ),
+                                    ],
+                                  ),
                               ],
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _minRatingController,
-                                    keyboardType: const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Min rating',
-                                      prefixIcon: Icon(Icons.star_border_rounded),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _maxDistanceController,
-                                    keyboardType: const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Max distance (km)',
-                                      prefixIcon: Icon(Icons.near_me_outlined),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            SwitchListTile.adaptive(
-                              contentPadding: EdgeInsets.zero,
-                              value: _onlyAvailable,
-                              onChanged: (value) {
-                                setState(() {
-                                  _onlyAvailable = value;
-                                });
-                              },
-                              title: const Text('Only available services'),
-                              subtitle: Text(
-                                _availableDate == null
-                                    ? 'Select a date to check availability'
-                                    : 'Date: ${_formatDate(_availableDate!)}',
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: _pickAvailabilityDate,
-                                    icon: const Icon(Icons.event_available_rounded),
-                                    label: const Text('Set Date'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: _isFetchingLocation ? null : _useCurrentLocation,
-                                    icon: _isFetchingLocation
-                                        ? const SizedBox(
-                                            width: 14,
-                                            height: 14,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          )
-                                        : const Icon(Icons.my_location_rounded),
-                                    label: Text(
-                                      _isFetchingLocation
-                                          ? 'Locating...'
-                                          : (_userLatitude == null
-                                              ? 'Use My Location'
-                                              : 'Location Set'),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: _applyFilters,
-                                    icon: const Icon(Icons.filter_alt_rounded),
-                                    label: const Text('Apply Filters'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                OutlinedButton.icon(
-                                  onPressed: _clearFilters,
-                                  icon: const Icon(Icons.filter_alt_off_rounded),
-                                  label: const Text('Clear'),
-                                ),
-                              ],
-                            ),
-                          ],
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -1187,6 +1398,78 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _HeroPill extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _HeroPill({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFFEAF9F5)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Color(0xFFEAF9F5),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterStatusChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _FilterStatusChip({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF6F3),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.brand),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: AppTheme.brand,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
