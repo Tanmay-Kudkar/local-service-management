@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
+import '../widgets/server_selector_sheet.dart';
 import 'provider_dashboard_screen.dart';
 import 'service_list_screen.dart';
 
@@ -40,6 +41,8 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
   _PortalType _portalType = _PortalType.customer;
   Uint8List? _selectedProfileImageBytes;
   String? _selectedProfileImageName;
+  ApiServerMode _serverMode = ApiServerMode.deployed;
+  String? _activeServerUrl;
 
   String get _selectedRole {
     return _portalType == _PortalType.customer ? 'USER' : 'PROVIDER';
@@ -49,6 +52,7 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadServerModeConfig();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _resetScrollPosition(jump: true);
@@ -206,6 +210,37 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _loadServerModeConfig() async {
+    final mode = await ApiService.getServerMode();
+    final baseUrl = await ApiService.getActiveBaseUrlForDisplay();
+    if (!mounted) return;
+    setState(() {
+      _serverMode = mode;
+      _activeServerUrl = baseUrl;
+    });
+  }
+
+  Future<void> _changeServerMode() async {
+    if (!ApiService.isServerModeRuntimeConfigurable) {
+      _showMessage('Server mode is locked by build configuration.');
+      return;
+    }
+
+    final selectedMode = await showServerModeSelectorSheet(context, _serverMode);
+    if (selectedMode == null || selectedMode == _serverMode) {
+      return;
+    }
+
+    await ApiService.setServerMode(selectedMode);
+    if (!mounted) return;
+
+    setState(() {
+      _serverMode = selectedMode;
+    });
+    await _loadServerModeConfig();
+    _showMessage('Server set to ${serverModeLabel(selectedMode)}.');
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
@@ -360,6 +395,17 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
                           ],
                         ),
                         const SizedBox(height: 18),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.cloud_outlined),
+                          title: Text('Server: ${serverModeLabel(_serverMode)}'),
+                          subtitle: Text(_activeServerUrl ?? 'Loading...'),
+                          trailing: TextButton(
+                            onPressed: _changeServerMode,
+                            child: const Text('Change'),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         _buildPortalSelector(context),
                         const SizedBox(height: 14),
                         Text(

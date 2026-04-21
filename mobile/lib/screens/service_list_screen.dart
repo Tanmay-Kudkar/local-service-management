@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +12,7 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
 import '../widgets/server_warmup_loading.dart';
+import '../widgets/server_selector_sheet.dart';
 import 'auth_screen.dart';
 import 'booking_screen.dart';
 
@@ -43,7 +45,10 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   DateTime? _availableDate;
   double? _userLatitude;
   double? _userLongitude;
+  String? _userLocationLabel;
   bool _isFetchingLocation = false;
+  ApiServerMode _serverMode = ApiServerMode.deployed;
+  String? _activeServerUrl;
 
   @override
   void initState() {
@@ -53,6 +58,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
     _minRatingController.addListener(_onFilterTextChanged);
     _maxDistanceController.addListener(_onFilterTextChanged);
     _displayName = widget.userName.trim();
+    _loadServerModeConfig();
     _loadServices();
     _loadUserProfile();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -172,7 +178,41 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       _availableDate = null;
       _userLatitude = null;
       _userLongitude = null;
+      _userLocationLabel = null;
     });
+    await _loadServices();
+  }
+
+  Future<void> _loadServerModeConfig() async {
+    final mode = await ApiService.getServerMode();
+    final baseUrl = await ApiService.getActiveBaseUrlForDisplay();
+    if (!mounted) return;
+    setState(() {
+      _serverMode = mode;
+      _activeServerUrl = baseUrl;
+    });
+  }
+
+  Future<void> _changeServerMode() async {
+    if (!ApiService.isServerModeRuntimeConfigurable) {
+      _showMessage('Server mode is locked by build configuration.');
+      return;
+    }
+
+    final selectedMode = await showServerModeSelectorSheet(context, _serverMode);
+    if (selectedMode == null || selectedMode == _serverMode) {
+      return;
+    }
+
+    await ApiService.setServerMode(selectedMode);
+    if (!mounted) return;
+
+    setState(() {
+      _serverMode = selectedMode;
+    });
+
+    await _loadServerModeConfig();
+    _showMessage('Server set to ${serverModeLabel(selectedMode)}.');
     await _loadServices();
   }
 
@@ -245,6 +285,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
         _userLatitude = position.latitude;
         _userLongitude = position.longitude;
       });
+      await _resolveUserLocationLabel(position.latitude, position.longitude);
       _showMessage('Using current location for distance filter.');
     } catch (_) {
       _showMessage('Unable to fetch current location.');
@@ -255,6 +296,36 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
         });
       }
     }
+  }
+
+  Future<void> _resolveUserLocationLabel(double latitude, double longitude) async {
+    String label = 'Current location';
+
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = <String?>[
+          place.subLocality,
+          place.locality,
+          place.administrativeArea,
+        ]
+            .map((part) => (part ?? '').trim())
+            .where((part) => part.isNotEmpty)
+            .toList();
+
+        if (parts.isNotEmpty) {
+          label = parts.take(2).join(', ');
+        }
+      }
+    } catch (_) {
+      // Keep fallback label when reverse geocoding fails.
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _userLocationLabel = label;
+    });
   }
 
   Future<void> _loadUserProfile() async {
@@ -369,6 +440,19 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                     ),
                   ),
                   actions: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                      child: Tooltip(
+                        message: _activeServerUrl == null
+                            ? 'Server: ${serverModeLabel(_serverMode)}'
+                            : 'Server: ${serverModeLabel(_serverMode)}\n$_activeServerUrl',
+                        child: IconButton(
+                          onPressed: _changeServerMode,
+                          icon: const Icon(Icons.cloud_outlined),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
                       child: TextButton.icon(
@@ -672,8 +756,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                                       if (_userLatitude != null && _userLongitude != null)
                                         _FilterStatusChip(
                                           icon: Icons.my_location_rounded,
-                                          text:
-                                              '${_userLatitude!.toStringAsFixed(3)}, ${_userLongitude!.toStringAsFixed(3)}',
+                                          text: _userLocationLabel ?? 'Current location',
                                         ),
                                     ],
                                   ),
@@ -1116,6 +1199,36 @@ class _ProviderDetailsSheet extends StatelessWidget {
 
   const _ProviderDetailsSheet({required this.service});
 
+  Future<String> _resolveLiveLocationLabel() async {
+    final latitude = service.providerLiveLatitude;
+    final longitude = service.providerLiveLongitude;
+    if (latitude == null || longitude == null) {
+      return 'Current location shared';
+    }
+
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = <String?>[
+          place.subLocality,
+          place.locality,
+          place.administrativeArea,
+        ]
+            .map((part) => (part ?? '').trim())
+            .where((part) => part.isNotEmpty)
+            .toList();
+        if (parts.isNotEmpty) {
+          return parts.take(2).join(', ');
+        }
+      }
+    } catch (_) {
+      // Fall back to a generic label when reverse geocoding fails.
+    }
+
+    return 'Current location shared';
+  }
+
   @override
   Widget build(BuildContext context) {
     final providerName = service.providerName ?? 'Provider';
@@ -1269,11 +1382,15 @@ class _ProviderDetailsSheet extends StatelessWidget {
                   service.providerLiveLatitude != null &&
                   service.providerLiveLongitude != null) ...[
                 const SizedBox(height: 10),
-                _DetailRow(
-                  icon: Icons.my_location_rounded,
-                  label: 'Live Location',
-                  value:
-                      'Lat ${service.providerLiveLatitude!.toStringAsFixed(5)}, Lng ${service.providerLiveLongitude!.toStringAsFixed(5)}',
+                FutureBuilder<String>(
+                  future: _resolveLiveLocationLabel(),
+                  builder: (context, snapshot) {
+                    return _DetailRow(
+                      icon: Icons.my_location_rounded,
+                      label: 'Live Location',
+                      value: snapshot.data ?? 'Resolving location...',
+                    );
+                  },
                 ),
               ],
               if (providerContact.isNotEmpty) ...[

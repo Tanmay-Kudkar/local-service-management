@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auth_response.dart';
 import '../models/booking_model.dart';
@@ -10,6 +11,11 @@ import '../models/provider_earnings_model.dart';
 import '../models/review_model.dart';
 import '../models/service_model.dart';
 import '../models/user_profile.dart';
+
+enum ApiServerMode {
+  deployed,
+  local,
+}
 
 class ApiService {
   static const Duration _requestTimeout = Duration(seconds: 45);
@@ -19,12 +25,54 @@ class ApiService {
   static const String _configuredBaseUrl = String.fromEnvironment('API_BASE_URL');
   static const String _configuredLocalBaseUrl =
       String.fromEnvironment('LOCAL_API_BASE_URL');
-  static const bool _preferDeployedBackend =
-      bool.fromEnvironment('PREFER_DEPLOYED_BACKEND', defaultValue: false);
+  static const String _configuredServerMode =
+      String.fromEnvironment('API_SERVER_MODE');
+  static const String _serverModePreferenceKey = 'apiServerMode';
 
-  static List<String> get _candidateBaseUrls {
+  static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
-      return [_normalizeBaseUrl(_configuredBaseUrl)];
+      return _normalizeBaseUrl(_configuredBaseUrl);
+    }
+    return _normalizeBaseUrl(_deployedBaseUrl);
+  }
+
+  static Future<ApiServerMode> getServerMode() async {
+    final configured = _configuredServerMode.trim().toLowerCase();
+    if (configured == 'local') {
+      return ApiServerMode.local;
+    }
+    if (configured == 'deployed') {
+      return ApiServerMode.deployed;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_serverModePreferenceKey)?.trim().toLowerCase();
+    if (stored == 'local') {
+      return ApiServerMode.local;
+    }
+    return ApiServerMode.deployed;
+  }
+
+  static Future<void> setServerMode(ApiServerMode mode) async {
+    if (_configuredServerMode.isNotEmpty) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_serverModePreferenceKey, mode.name);
+  }
+
+  static bool get isServerModeRuntimeConfigurable {
+    return _configuredBaseUrl.isEmpty && _configuredServerMode.isEmpty;
+  }
+
+  static Future<String> getActiveBaseUrlForDisplay() {
+    return _activeBaseUrl();
+  }
+
+  static Future<String> _activeBaseUrl() async {
+    if (_configuredBaseUrl.isNotEmpty) {
+      return _normalizeBaseUrl(_configuredBaseUrl);
     }
 
     final local = _normalizeBaseUrl(
@@ -33,15 +81,8 @@ class ApiService {
           : _defaultLocalBaseUrl,
     );
     final deployed = _normalizeBaseUrl(_deployedBaseUrl);
-
-    if (_preferDeployedBackend) {
-      return [deployed, local];
-    }
-    return [local, deployed];
-  }
-
-  static String get baseUrl {
-    return _candidateBaseUrls.first;
+    final mode = await getServerMode();
+    return mode == ApiServerMode.local ? local : deployed;
   }
 
   static Future<AuthResponse> register({
@@ -559,64 +600,42 @@ class ApiService {
     Uri initialUri,
     Future<http.Response> Function(Uri requestUri) request,
   ) async {
-    bool timedOut = false;
+    final activeBaseUrl = await _activeBaseUrl();
+    final requestUri = _withBaseUrl(initialUri, activeBaseUrl);
 
-    for (final base in _candidateBaseUrls) {
-      final requestUri = _withBaseUrl(initialUri, base);
-
-      try {
-        return await request(requestUri).timeout(_requestTimeout);
-      } on TimeoutException {
-        timedOut = true;
-      } on http.ClientException {
-        // Try next backend candidate.
-      }
-    }
-
-    final targets = _candidateBaseUrls.join(' and ');
-
-    if (timedOut) {
+    try {
+      return await request(requestUri).timeout(_requestTimeout);
+    } on TimeoutException {
       throw Exception(
-        'Request timed out on both local and deployed backends ($targets). Please ensure your local backend is running or retry in a few seconds.',
+        'Request timed out while contacting the ${_describeBackend(activeBaseUrl)} backend ($activeBaseUrl).',
+      );
+    } on http.ClientException {
+      throw Exception(
+        'Unable to reach the ${_describeBackend(activeBaseUrl)} backend ($activeBaseUrl).',
       );
     }
-
-    throw Exception(
-      'Unable to reach both local and deployed backends ($targets). Please ensure your local backend is running or check network connectivity.',
-    );
   }
 
   static Future<http.Response> _sendMultipart(
     Uri initialUri,
     http.MultipartRequest Function(Uri requestUri) requestBuilder,
   ) async {
-    bool timedOut = false;
+    final activeBaseUrl = await _activeBaseUrl();
+    final requestUri = _withBaseUrl(initialUri, activeBaseUrl);
 
-    for (final base in _candidateBaseUrls) {
-      final requestUri = _withBaseUrl(initialUri, base);
-
-      try {
-        final request = requestBuilder(requestUri);
-        final streamed = await request.send().timeout(_requestTimeout);
-        return http.Response.fromStream(streamed);
-      } on TimeoutException {
-        timedOut = true;
-      } on http.ClientException {
-        // Try next backend candidate.
-      }
-    }
-
-    final targets = _candidateBaseUrls.join(' and ');
-
-    if (timedOut) {
+    try {
+      final request = requestBuilder(requestUri);
+      final streamed = await request.send().timeout(_requestTimeout);
+      return http.Response.fromStream(streamed);
+    } on TimeoutException {
       throw Exception(
-        'Upload timed out on both local and deployed backends ($targets). Please ensure your local backend is running or retry in a few seconds.',
+        'Upload timed out while contacting the ${_describeBackend(activeBaseUrl)} backend ($activeBaseUrl).',
+      );
+    } on http.ClientException {
+      throw Exception(
+        'Unable to upload to the ${_describeBackend(activeBaseUrl)} backend ($activeBaseUrl).',
       );
     }
-
-    throw Exception(
-      'Unable to upload to both local and deployed backends ($targets). Please ensure your local backend is running or check network connectivity.',
-    );
   }
 
   static Uri _withBaseUrl(Uri originalUri, String baseUrl) {
@@ -632,6 +651,24 @@ class ApiService {
     return trimmed.endsWith('/')
         ? trimmed.substring(0, trimmed.length - 1)
         : trimmed;
+  }
+
+  static String _describeBackend(String baseUrl) {
+    final normalized = _normalizeBaseUrl(baseUrl);
+    final normalizedLocal = _normalizeBaseUrl(
+      _configuredLocalBaseUrl.isNotEmpty
+          ? _configuredLocalBaseUrl
+          : _defaultLocalBaseUrl,
+    );
+    final normalizedDeployed = _normalizeBaseUrl(_deployedBaseUrl);
+
+    if (normalized == normalizedLocal) {
+      return 'local';
+    }
+    if (normalized == normalizedDeployed) {
+      return 'deployed';
+    }
+    return 'configured';
   }
 
   static String _readError(String body) {

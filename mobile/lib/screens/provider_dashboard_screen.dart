@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,7 @@ import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_background.dart';
+import '../widgets/server_selector_sheet.dart';
 import '../widgets/server_warmup_loading.dart';
 import 'auth_screen.dart';
 
@@ -132,11 +134,15 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
   Uint8List? _selectedProfileImageBytes;
   String? _selectedProfileImageName;
   bool _profileImageDirty = false;
+  String? _providerLiveLocationLabel;
+  ApiServerMode _serverMode = ApiServerMode.deployed;
+  String? _activeServerUrl;
 
   @override
   void initState() {
     super.initState();
     _displayName = widget.userName.trim();
+    _loadServerModeConfig();
     _loadDashboardData();
   }
 
@@ -220,6 +226,8 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         }
       });
 
+      unawaited(_resolveProviderLiveLocationLabel(profile));
+
       _refreshLiveLocationTimer();
     } catch (e) {
       if (!mounted) return;
@@ -233,6 +241,78 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadServerModeConfig() async {
+    final mode = await ApiService.getServerMode();
+    final baseUrl = await ApiService.getActiveBaseUrlForDisplay();
+    if (!mounted) return;
+    setState(() {
+      _serverMode = mode;
+      _activeServerUrl = baseUrl;
+    });
+  }
+
+  Future<void> _changeServerMode() async {
+    if (!ApiService.isServerModeRuntimeConfigurable) {
+      _showMessage('Server mode is locked by build configuration.');
+      return;
+    }
+
+    final selectedMode = await showServerModeSelectorSheet(context, _serverMode);
+    if (selectedMode == null || selectedMode == _serverMode) {
+      return;
+    }
+
+    await ApiService.setServerMode(selectedMode);
+    if (!mounted) return;
+
+    setState(() {
+      _serverMode = selectedMode;
+    });
+
+    await _loadServerModeConfig();
+    _showMessage('Server set to ${serverModeLabel(selectedMode)}.');
+    await _loadDashboardData();
+  }
+
+  Future<void> _resolveProviderLiveLocationLabel(UserProfile profile) async {
+    final latitude = profile.liveLatitude;
+    final longitude = profile.liveLongitude;
+
+    if (latitude == null || longitude == null) {
+      if (!mounted) return;
+      setState(() {
+        _providerLiveLocationLabel = null;
+      });
+      return;
+    }
+
+    var label = 'Current location synced';
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = <String?>[
+          place.subLocality,
+          place.locality,
+          place.administrativeArea,
+        ]
+            .map((part) => (part ?? '').trim())
+            .where((part) => part.isNotEmpty)
+            .toList();
+        if (parts.isNotEmpty) {
+          label = parts.take(2).join(', ');
+        }
+      }
+    } catch (_) {
+      // Keep fallback label when reverse geocoding fails.
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _providerLiveLocationLabel = label;
+    });
   }
 
   void _bindProviderProfileFields(UserProfile profile) {
@@ -700,6 +780,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
       setState(() {
         _providerProfile = updated;
       });
+      unawaited(_resolveProviderLiveLocationLabel(updated));
 
       if (showSuccessMessage) {
         _showMessage('Live location updated');
@@ -730,6 +811,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
       setState(() {
         _providerProfile = updated;
       });
+      unawaited(_resolveProviderLiveLocationLabel(updated));
 
       _refreshLiveLocationTimer();
       if (enabled) {
@@ -994,6 +1076,19 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                     ),
                   ),
                   actions: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                      child: Tooltip(
+                        message: _activeServerUrl == null
+                            ? 'Server: ${serverModeLabel(_serverMode)}'
+                            : 'Server: ${serverModeLabel(_serverMode)}\n$_activeServerUrl',
+                        child: IconButton(
+                          onPressed: _changeServerMode,
+                          icon: const Icon(Icons.cloud_outlined),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
                       child: TextButton.icon(
@@ -1467,7 +1562,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                                     providerProfile?.liveLatitude == null ||
                                             providerProfile?.liveLongitude == null
                                         ? 'No location synced yet'
-                                        : 'Lat ${providerProfile!.liveLatitude!.toStringAsFixed(5)}, Lng ${providerProfile.liveLongitude!.toStringAsFixed(5)}',
+                                        : (_providerLiveLocationLabel ?? 'Current location synced'),
                                     style: Theme.of(context).textTheme.bodyMedium,
                                   ),
                                 ),
