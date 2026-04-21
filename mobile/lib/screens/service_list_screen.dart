@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,7 @@ import '../models/service_model.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/india_location_data.dart';
 import '../widgets/app_background.dart';
 import '../widgets/server_warmup_loading.dart';
 import '../widgets/server_selector_sheet.dart';
@@ -38,6 +40,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   bool _showContent = false;
   Timer? _warmupHintTimer;
   bool _isEditProfileDialogOpen = false;
+  bool? _hasPreviousRouteAtEntry;
   String _displayName = '';
   UserProfile? _userProfile;
   int _loadRequestVersion = 0;
@@ -52,7 +55,6 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
   String? _userLocationLabel;
   bool _isFetchingLocation = false;
   ApiServerMode _serverMode = ApiServerMode.deployed;
-  String? _activeServerUrl;
 
   @override
   void initState() {
@@ -71,6 +73,12 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
         _showContent = true;
       });
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _hasPreviousRouteAtEntry ??= Navigator.of(context).canPop();
   }
 
   @override
@@ -191,11 +199,9 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
 
   Future<void> _loadServerModeConfig() async {
     final mode = await ApiService.getServerMode();
-    final baseUrl = await ApiService.getActiveBaseUrlForDisplay();
     if (!mounted) return;
     setState(() {
       _serverMode = mode;
-      _activeServerUrl = baseUrl;
     });
   }
 
@@ -375,208 +381,37 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
     }
 
     _isEditProfileDialogOpen = true;
-    final profile = _userProfile;
-    final nameController = TextEditingController(
-      text: profile?.name ?? _displayName,
-    );
-    final contactController = TextEditingController(
-      text: profile?.contactNumber ?? '',
-    );
-    final addressController = TextEditingController(
-      text: profile?.address ?? '',
-    );
-    final cityController = TextEditingController(
-      text: profile?.city ?? '',
-    );
-    final stateController = TextEditingController(
-      text: profile?.state ?? '',
-    );
-    final pincodeController = TextEditingController(
-      text: profile?.pincode ?? '',
-    );
-
-    bool isSaving = false;
-
     try {
-      await showDialog<void>(
+      final updatedProfile = await showDialog<UserProfile>(
         context: context,
         builder: (dialogContext) {
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              return AlertDialog(
-                title: const Text('Edit Profile'),
-                content: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: nameController,
-                        enabled: !isSaving,
-                        decoration: const InputDecoration(
-                          labelText: 'Name *',
-                          prefixIcon: Icon(Icons.person_outline_rounded),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: contactController,
-                        enabled: !isSaving,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'Contact Number',
-                          prefixIcon: Icon(Icons.phone_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: addressController,
-                        enabled: !isSaving,
-                        maxLines: 2,
-                        decoration: const InputDecoration(
-                          labelText: 'Address',
-                          prefixIcon: Icon(Icons.home_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: cityController,
-                        enabled: !isSaving,
-                        decoration: const InputDecoration(
-                          labelText: 'City',
-                          prefixIcon: Icon(Icons.location_city_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: stateController,
-                        enabled: !isSaving,
-                        decoration: const InputDecoration(
-                          labelText: 'State',
-                          prefixIcon: Icon(Icons.map_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: pincodeController,
-                        enabled: !isSaving,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Pincode',
-                          prefixIcon: Icon(Icons.pin_drop_outlined),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: isSaving
-                        ? null
-                        : () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                  ElevatedButton(
-                    onPressed: isSaving
-                        ? null
-                        : () async {
-                            final navigator = Navigator.of(dialogContext);
-                            final name = nameController.text.trim();
-                            final contact = contactController.text.trim();
-                            final address = addressController.text.trim();
-                            final pincode = pincodeController.text.trim();
-
-                            if (name.isEmpty) {
-                              _showMessage('Name is required.');
-                              return;
-                            }
-
-                            if (contact.isNotEmpty &&
-                                (contact.length != 10 ||
-                                    !RegExp(r'^[6-9][0-9]{9}').hasMatch(contact))) {
-                              _showMessage('Enter a valid 10-digit Indian mobile number.');
-                              return;
-                            }
-
-                            if (address.isNotEmpty && address.length < 10) {
-                              _showMessage('Address must be at least 10 characters.');
-                              return;
-                            }
-
-                            if (pincode.isNotEmpty &&
-                                (pincode.length != 6 ||
-                                    !RegExp(r'^[1-9][0-9]{5}').hasMatch(pincode))) {
-                              _showMessage('Enter a valid 6-digit pincode.');
-                              return;
-                            }
-
-                            setDialogState(() {
-                              isSaving = true;
-                            });
-
-                            try {
-                              final updatedProfile = await ApiService.updateUserProfile(
-                                userId: widget.userId,
-                                name: name,
-                                contactNumber: contact,
-                                address: address,
-                                city: cityController.text.trim(),
-                                state: stateController.text.trim(),
-                                pincode: pincode,
-                              );
-
-                              final prefs = await SharedPreferences.getInstance();
-                              await prefs.setString('userName', updatedProfile.name);
-
-                              if (!mounted) {
-                                return;
-                              }
-
-                              setState(() {
-                                _displayName = updatedProfile.name;
-                                _userProfile = updatedProfile;
-                              });
-
-                              if (navigator.mounted) {
-                                navigator.pop();
-                              }
-
-                              _showMessage('Profile updated successfully.');
-                            } catch (e) {
-                              if (navigator.mounted) {
-                                setDialogState(() {
-                                  isSaving = false;
-                                });
-                              }
-                              _showMessage(
-                                e.toString().replaceFirst('Exception: ', ''),
-                              );
-                            }
-                          },
-                    child: isSaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Save'),
-                  ),
-                ],
-              );
-            },
+          return _EditCustomerProfileDialog(
+            userId: widget.userId,
+            initialProfile: _userProfile,
+            fallbackName: _displayName,
           );
         },
       );
+
+      if (!mounted || updatedProfile == null) {
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userName', updatedProfile.name);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _displayName = updatedProfile.name;
+        _userProfile = updatedProfile;
+      });
+
+      _showMessage('Profile updated successfully.');
     } finally {
       _isEditProfileDialogOpen = false;
-      nameController.dispose();
-      contactController.dispose();
-      addressController.dispose();
-      cityController.dispose();
-      stateController.dispose();
-      pincodeController.dispose();
     }
   }
 
@@ -661,7 +496,7 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hasPreviousRoute = Navigator.of(context).canPop();
+    final hasPreviousRoute = _hasPreviousRouteAtEntry ?? false;
 
     return PopScope(
       canPop: hasPreviousRoute,
@@ -705,50 +540,36 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
                   actions: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 2, 8),
-                      child: Tooltip(
-                        message: 'My Bookings',
-                        child: IconButton(
-                          onPressed: _openMyBookings,
-                          icon: const Icon(Icons.receipt_long_rounded),
-                          color: Colors.white,
-                        ),
+                      child: IconButton(
+                        onPressed: _openMyBookings,
+                        icon: const Icon(Icons.receipt_long_rounded),
+                        color: Colors.white,
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 2, 8),
-                      child: Tooltip(
-                        message: 'Edit Profile',
-                        child: IconButton(
-                          onPressed: _openEditProfileDialog,
-                          icon: const Icon(Icons.manage_accounts_outlined),
-                          color: Colors.white,
-                        ),
+                      child: IconButton(
+                        onPressed: _openEditProfileDialog,
+                        icon: const Icon(Icons.manage_accounts_outlined),
+                        color: Colors.white,
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
-                      child: Tooltip(
-                        message: _activeServerUrl == null
-                            ? 'Server: ${serverModeLabel(_serverMode)}'
-                            : 'Server: ${serverModeLabel(_serverMode)}\n$_activeServerUrl',
-                        child: IconButton(
-                          onPressed: _changeServerMode,
-                          icon: const Icon(Icons.cloud_outlined),
-                          color: Colors.white,
-                        ),
+                      child: IconButton(
+                        onPressed: _changeServerMode,
+                        icon: const Icon(Icons.cloud_outlined),
+                        color: Colors.white,
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
-                      child: Tooltip(
-                        message: 'Logout',
-                        child: IconButton(
-                          onPressed: _logout,
-                          icon: const Icon(Icons.logout_rounded),
-                          style: IconButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            backgroundColor: Colors.white.withValues(alpha: 0.18),
-                          ),
+                      child: IconButton(
+                        onPressed: _logout,
+                        icon: const Icon(Icons.logout_rounded),
+                        style: IconButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.white.withValues(alpha: 0.18),
                         ),
                       ),
                     ),
@@ -1857,6 +1678,445 @@ class _ProviderDetailsSheet extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _EditCustomerProfileDialog extends StatefulWidget {
+  final int userId;
+  final UserProfile? initialProfile;
+  final String fallbackName;
+
+  const _EditCustomerProfileDialog({
+    required this.userId,
+    required this.initialProfile,
+    required this.fallbackName,
+  });
+
+  @override
+  State<_EditCustomerProfileDialog> createState() =>
+      _EditCustomerProfileDialogState();
+}
+
+class _EditCustomerProfileDialogState extends State<_EditCustomerProfileDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _contactController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _pincodeController;
+
+  String? _selectedState;
+  String? _selectedCity;
+  bool _isSaving = false;
+  String? _submitError;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final profile = widget.initialProfile;
+    final initialName = (profile?.name ?? widget.fallbackName).trim();
+
+    _nameController = TextEditingController(text: initialName);
+    _contactController = TextEditingController(
+      text: profile?.contactNumber?.trim() ?? '',
+    );
+    _addressController = TextEditingController(
+      text: profile?.address?.trim() ?? '',
+    );
+    _pincodeController = TextEditingController(
+      text: profile?.pincode?.trim() ?? '',
+    );
+
+    _selectedState = _normalizeState(profile?.state);
+    _selectedCity = _normalizeCity(
+      city: profile?.city,
+      state: _selectedState,
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _contactController.dispose();
+    _addressController.dispose();
+    _pincodeController.dispose();
+    super.dispose();
+  }
+
+  List<String> get _states => IndiaLocationData.states;
+
+  List<String> get _cities {
+    return IndiaLocationData.citiesForState(_selectedState);
+  }
+
+  String? _normalizeState(String? state) {
+    final value = (state ?? '').trim();
+    if (value.isEmpty) {
+      return null;
+    }
+
+    for (final option in IndiaLocationData.states) {
+      if (option.toLowerCase() == value.toLowerCase()) {
+        return option;
+      }
+    }
+
+    return null;
+  }
+
+  String? _normalizeCity({
+    required String? city,
+    required String? state,
+  }) {
+    final value = (city ?? '').trim();
+    if (value.isEmpty || state == null || state.isEmpty) {
+      return null;
+    }
+
+    final cityOptions = IndiaLocationData.citiesForState(state);
+    for (final option in cityOptions) {
+      if (option.toLowerCase() == value.toLowerCase()) {
+        return option;
+      }
+    }
+
+    return null;
+  }
+
+  String? _validateName(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return 'Name is required';
+    }
+
+    if (text.length < 2) {
+      return 'Name must be at least 2 characters';
+    }
+
+    return null;
+  }
+
+  String? _validatePhone(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    if (!IndiaLocationData.isValidIndianPhone(text)) {
+      return 'Enter a valid 10-digit Indian mobile number';
+    }
+
+    return null;
+  }
+
+  String? _validateAddress(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) {
+      return null;
+    }
+
+    if (text.length < 10) {
+      return 'Address should be at least 10 characters';
+    }
+
+    return null;
+  }
+
+  String? _validateState(String? value) {
+    final state = (value ?? '').trim();
+    if (state.isEmpty) {
+      return 'Please select a state';
+    }
+
+    if (!IndiaLocationData.stateExists(state)) {
+      return 'Please select a valid state';
+    }
+
+    return null;
+  }
+
+  String? _validateCity(String? value) {
+    final city = (value ?? '').trim();
+    if (city.isEmpty) {
+      return 'Please select a city';
+    }
+
+    final state = (_selectedState ?? '').trim();
+    if (state.isEmpty) {
+      return 'Select a state first';
+    }
+
+    if (!IndiaLocationData.cityBelongsToState(state: state, city: city)) {
+      return 'Please select a valid city for the selected state';
+    }
+
+    return null;
+  }
+
+  String? _validatePincode(String? value) {
+    final pincode = (value ?? '').trim();
+    if (pincode.isEmpty) {
+      return null;
+    }
+
+    if (!IndiaLocationData.isValidIndianPincode(pincode)) {
+      return 'Enter a valid 6-digit pincode';
+    }
+
+    final state = (_selectedState ?? '').trim();
+    if (state.isNotEmpty &&
+        !IndiaLocationData.isPincodeCompatibleWithState(
+          state: state,
+          pincode: pincode,
+        )) {
+      return 'Pincode does not match the selected state';
+    }
+
+    return null;
+  }
+
+  Future<void> _save() async {
+    if (_isSaving) {
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+
+    final valid = _formKey.currentState?.validate() ?? false;
+    if (!valid) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _submitError = null;
+    });
+
+    try {
+      final updatedProfile = await ApiService.updateUserProfile(
+        userId: widget.userId,
+        name: _nameController.text.trim(),
+        contactNumber: _contactController.text.trim(),
+        address: _addressController.text.trim(),
+        city: _selectedCity,
+        state: _selectedState,
+        pincode: _pincodeController.text.trim(),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop(updatedProfile);
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSaving = false;
+        _submitError = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+      ),
+      titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+      contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      title: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: AppTheme.brand.withValues(alpha: 0.14),
+            ),
+            child: const Icon(
+              Icons.manage_accounts_outlined,
+              color: AppTheme.brand,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Edit Profile',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  controller: _nameController,
+                  enabled: !_isSaving,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Name *',
+                    prefixIcon: Icon(Icons.person_outline_rounded),
+                  ),
+                  validator: _validateName,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _contactController,
+                  enabled: !_isSaving,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Contact Number',
+                    prefixIcon: Icon(Icons.phone_outlined),
+                  ),
+                  validator: _validatePhone,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _addressController,
+                  enabled: !_isSaving,
+                  maxLines: 2,
+                  textInputAction: TextInputAction.newline,
+                  decoration: const InputDecoration(
+                    labelText: 'Address',
+                    prefixIcon: Icon(Icons.home_outlined),
+                  ),
+                  validator: _validateAddress,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  key: ValueKey<String?>(_selectedState),
+                  initialValue: _selectedState,
+                  isExpanded: true,
+                  menuMaxHeight: 380,
+                  decoration: const InputDecoration(
+                    labelText: 'State *',
+                    prefixIcon: Icon(Icons.map_outlined),
+                  ),
+                  items: _states
+                      .map(
+                        (state) => DropdownMenuItem<String>(
+                          value: state,
+                          child: Text(
+                            state,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _isSaving
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _selectedState = value;
+                            _selectedCity = null;
+                          });
+                        },
+                  validator: _validateState,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  key: ValueKey<String>('${_selectedState ?? ''}|${_selectedCity ?? ''}'),
+                  initialValue: _selectedCity,
+                  isExpanded: true,
+                  menuMaxHeight: 380,
+                  decoration: InputDecoration(
+                    labelText: 'City *',
+                    prefixIcon: const Icon(Icons.location_city_outlined),
+                    hintText: _selectedState == null ? 'Select state first' : null,
+                  ),
+                  items: _cities
+                      .map(
+                        (city) => DropdownMenuItem<String>(
+                          value: city,
+                          child: Text(
+                            city,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (_isSaving || _selectedState == null)
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _selectedCity = value;
+                          });
+                        },
+                  validator: _validateCity,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _pincodeController,
+                  enabled: !_isSaving,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Pincode',
+                    prefixIcon: Icon(Icons.pin_drop_outlined),
+                  ),
+                  validator: _validatePincode,
+                ),
+                if (_submitError != null && _submitError!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _submitError!,
+                    style: const TextStyle(
+                      color: Color(0xFFC0392B),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        SizedBox(
+          width: 112,
+          child: ElevatedButton(
+            onPressed: _isSaving ? null : _save,
+            child: _isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Save'),
+          ),
+        ),
+      ],
     );
   }
 }
