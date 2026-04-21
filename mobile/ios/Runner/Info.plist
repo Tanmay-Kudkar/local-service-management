@@ -26,6 +26,14 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Servico uses your camera so you can take and upload profile photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Servico needs photo library access so you can select profile images.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Servico can save images related to your profile when needed.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Servico uses your location to show nearby services and enable provider live location sync.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

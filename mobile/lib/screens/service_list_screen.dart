@@ -206,6 +206,12 @@ class _ServiceListScreenState extends State<ServiceListScreen> {
       permission = await Geolocator.requestPermission();
     }
 
+    if (permission == LocationPermission.deniedForever) {
+      _showMessage('Location permission is permanently denied. Open app settings to allow it.');
+      await Geolocator.openAppSettings();
+      return false;
+    }
+
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
       _showMessage('Location permission is required for distance filtering.');

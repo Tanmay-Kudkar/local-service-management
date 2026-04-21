@@ -233,10 +233,42 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<ImageSource?> _selectImageSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _pickProviderImage() async {
     try {
+      final source = await _selectImageSource();
+      if (source == null) {
+        return;
+      }
+
       final image = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
+        source: source,
         imageQuality: 85,
         maxWidth: 1400,
       );
@@ -256,7 +288,7 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
         _selectedProfileImageName = image.name;
       });
     } catch (_) {
-      _showMessage('Unable to pick image from gallery.');
+      _showMessage('Unable to pick image. Please check camera/media permissions.');
     }
   }
 

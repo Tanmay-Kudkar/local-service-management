@@ -535,10 +535,42 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     }
   }
 
+  Future<ImageSource?> _selectImageSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Take Photo'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _pickProfileImage() async {
     try {
+      final source = await _selectImageSource();
+      if (source == null) {
+        return;
+      }
+
       final image = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
+        source: source,
         imageQuality: 85,
         maxWidth: 1600,
       );
@@ -559,7 +591,7 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         _profileImageDirty = true;
       });
     } catch (_) {
-      _showMessage('Unable to pick image from gallery.');
+      _showMessage('Unable to pick image. Please check camera/media permissions.');
     }
   }
 
@@ -616,6 +648,12 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _showMessage('Location permission is permanently denied. Open app settings to allow it.');
+      await Geolocator.openAppSettings();
+      return false;
     }
 
     if (permission == LocationPermission.denied ||
@@ -703,6 +741,61 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
         _liveShareEnabled = !enabled;
       });
       _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _requestLocationPermissionFromCenter() async {
+    final allowed = await _ensureLocationPermission();
+    if (allowed) {
+      _showMessage('Location permission is available.');
+    }
+  }
+
+  Future<void> _requestCameraPermissionFromCenter() {
+    return _requestImagePermissionFromSource(ImageSource.camera);
+  }
+
+  Future<void> _requestPhotosPermissionFromCenter() {
+    return _requestImagePermissionFromSource(ImageSource.gallery);
+  }
+
+  Future<void> _requestImagePermissionFromSource(ImageSource source) async {
+    try {
+      final image = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 75,
+        maxWidth: 1280,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      final sourceLabel = source == ImageSource.camera ? 'Camera' : 'Photos';
+      if (image == null) {
+        _showMessage('$sourceLabel access checked.');
+      } else {
+        _showMessage('$sourceLabel permission is available.');
+      }
+    } catch (_) {
+      final sourceLabel = source == ImageSource.camera ? 'camera' : 'photos';
+      _showMessage(
+        'Unable to access $sourceLabel. Please allow permission from app settings.',
+      );
+    }
+  }
+
+  Future<void> _openAppSettingsFromCenter() async {
+    final opened = await Geolocator.openAppSettings();
+    if (!opened && mounted) {
+      _showMessage('Unable to open app settings on this device.');
+    }
+  }
+
+  Future<void> _openLocationSettingsFromCenter() async {
+    final opened = await Geolocator.openLocationSettings();
+    if (!opened && mounted) {
+      _showMessage('Unable to open location settings on this device.');
     }
   }
 
@@ -1247,6 +1340,88 @@ class _ProviderDashboardScreenState extends State<ProviderDashboardScreen> {
                                   _isProfileSaving ? 'Saving Profile...' : 'Save Provider Profile',
                                 ),
                               ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Permission Center',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Grant permissions for location sync, camera capture, and photo uploads. These permissions also appear in your device app settings.',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: const [
+                                _PermissionChip(
+                                  icon: Icons.location_on_outlined,
+                                  text: 'Location',
+                                ),
+                                _PermissionChip(
+                                  icon: Icons.photo_camera_outlined,
+                                  text: 'Camera',
+                                ),
+                                _PermissionChip(
+                                  icon: Icons.photo_library_outlined,
+                                  text: 'Photos / Files',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _requestLocationPermissionFromCenter,
+                                  icon: const Icon(Icons.my_location_rounded),
+                                  label: const Text('Ask Location'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _requestCameraPermissionFromCenter,
+                                  icon: const Icon(Icons.photo_camera_outlined),
+                                  label: const Text('Ask Camera'),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _requestPhotosPermissionFromCenter,
+                                  icon: const Icon(Icons.photo_library_outlined),
+                                  label: const Text('Ask Photos'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: _openAppSettingsFromCenter,
+                                  icon: const Icon(Icons.settings_outlined),
+                                  label: const Text('Open App Settings'),
+                                ),
+                                TextButton.icon(
+                                  onPressed: _openLocationSettingsFromCenter,
+                                  icon: const Icon(Icons.location_searching_rounded),
+                                  label: const Text('Open Location Settings'),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1974,6 +2149,43 @@ class _StatPill extends StatelessWidget {
           fontWeight: FontWeight.w700,
           fontSize: 12,
         ),
+      ),
+    );
+  }
+}
+
+class _PermissionChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _PermissionChip({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF6F4),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD7E7E3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.brand),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: AppTheme.brand,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
