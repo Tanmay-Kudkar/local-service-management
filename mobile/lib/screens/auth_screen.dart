@@ -101,9 +101,11 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
 
   Future<void> _submit() async {
     final isProviderRegistration = !_isLogin && _portalType == _PortalType.provider;
+    final normalizedEmail = _emailController.text.trim().toLowerCase();
+    final normalizedPassword = _passwordController.text.trim();
 
-    if (_emailController.text.trim().isEmpty ||
-        _passwordController.text.trim().isEmpty ||
+    if (normalizedEmail.isEmpty ||
+        normalizedPassword.isEmpty ||
         (!_isLogin && _nameController.text.trim().isEmpty)) {
       _showMessage('Please fill all required fields');
       return;
@@ -168,13 +170,13 @@ class _AuthScreenState extends State<AuthScreen> with WidgetsBindingObserver {
     try {
       final authResponse = _isLogin
           ? await ApiService.login(
-              email: _emailController.text.trim(),
-              password: _passwordController.text.trim(),
+              email: normalizedEmail,
+              password: normalizedPassword,
             )
           : await ApiService.register(
               name: _nameController.text.trim(),
-              email: _emailController.text.trim(),
-              password: _passwordController.text.trim(),
+              email: normalizedEmail,
+              password: normalizedPassword,
               role: _selectedRole,
               contactNumber: isProviderRegistration
                 ? normalizedContact

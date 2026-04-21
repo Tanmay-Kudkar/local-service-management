@@ -1,5 +1,6 @@
 package com.lsm.backend.service;
 
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
@@ -30,14 +31,14 @@ public class AuthService {
         }
 
         String name = request.getName().trim();
-        String email = request.getEmail().trim();
+        String email = normalizeEmail(request.getEmail());
         String password = request.getPassword().trim();
 
         if (name.isEmpty() || email.isEmpty() || password.isEmpty()) {
             throw new BadRequestException("Name, email and password cannot be empty");
         }
 
-        if (userRepository.existsByEmail(email)) {
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new BadRequestException("Email already registered");
         }
 
@@ -59,10 +60,10 @@ public class AuthService {
 
         User savedUser = userRepository.save(user);
         return new AuthResponse(
-            savedUser.getId(),
-            savedUser.getName(),
-            normalizeRole(savedUser).name(),
-            "Registration successful");
+                savedUser.getId(),
+                savedUser.getName(),
+                normalizeRole(savedUser).name(),
+                "Registration successful");
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -70,20 +71,32 @@ public class AuthService {
             throw new BadRequestException("Email and password are required");
         }
 
-        User user = userRepository.findByEmail(request.getEmail())
+        String email = normalizeEmail(request.getEmail());
+        String password = request.getPassword().trim();
+
+        if (email.isEmpty() || password.isEmpty()) {
+            throw new BadRequestException("Email and password are required");
+        }
+
+        User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new BadRequestException("Invalid email or password"));
 
-        if (!user.getPassword().equals(request.getPassword())) {
+        String storedPassword = user.getPassword();
+        if (storedPassword == null || storedPassword.trim().isEmpty()) {
+            throw new BadRequestException("Account password is not set. Please register again.");
+        }
+
+        if (!storedPassword.equals(password)) {
             throw new BadRequestException("Invalid email or password");
         }
 
         Role role = normalizeRole(user);
 
         return new AuthResponse(
-            user.getId(),
-            user.getName(),
-            role.name(),
-            "Login successful");
+                user.getId(),
+                user.getName(),
+                role.name(),
+                "Login successful");
     }
 
     private Role normalizeRole(User user) {
@@ -142,7 +155,7 @@ public class AuthService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
+    private String normalizeEmail(String value) {
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 }

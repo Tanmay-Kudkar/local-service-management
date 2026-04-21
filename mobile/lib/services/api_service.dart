@@ -741,11 +741,44 @@ class ApiService {
 
   static String _readError(String body) {
     try {
-      final parsed = jsonDecode(body) as Map<String, dynamic>;
-      return parsed['message'] as String? ?? 'Request failed';
+      final parsed = jsonDecode(body);
+
+      if (parsed is Map<String, dynamic>) {
+        final message = [
+          parsed['message'],
+          parsed['error'],
+          parsed['detail'],
+          parsed['title'],
+        ]
+            .whereType<String>()
+            .map((value) => value.trim())
+            .firstWhere(
+              (value) => value.isNotEmpty,
+              orElse: () => '',
+            );
+
+        if (message.isNotEmpty) {
+          final errorId = (parsed['errorId'] as String?)?.trim();
+          if (errorId != null && errorId.isNotEmpty) {
+            return '$message (Ref: $errorId)';
+          }
+          return message;
+        }
+      }
+
+      if (parsed is String && parsed.trim().isNotEmpty) {
+        return parsed.trim();
+      }
     } catch (_) {
-      return 'Request failed';
+      // Fall back to raw response text below.
     }
+
+    final raw = body.trim();
+    if (raw.isNotEmpty) {
+      return raw;
+    }
+
+    return 'Request failed';
   }
 
   static void _putIfNotBlank(
